@@ -1,272 +1,323 @@
 let w, h, ch = 800., 800., 20.
-let g = Graph.hypercube 3
-let pos = Layout.init g
-let vertex_radius = 20.
 
-type state = {
-    auto_fit : bool;
+type button_state = Down | Up | Clicked
+
+type zone = {
+    camera : Raylib.Camera2D.t;
+    rect : Raylib.Rectangle.t;
+    draw : state -> unit;
+    process_input : state -> input -> zone -> state * bool;
+    mutable panning : bool
+} and state = {
+    zones : zone array;
+    graph : int Graph.t;
+    (* TODO move to Vector2 *)
+    pos : (float * float) array; 
+    dragged_vertex : (int * zone) option;
+    input : input;
+    gui : panel array;
+    layout : float * float * float * float;
     iterate : bool;
-    dragged_vertex : int option; 
-    zoom : float;
-    offset : float * float;
-    panning : bool;
-    curved : bool;
-    arrow : bool;
-    c1 : float;
-    c2 : float;
-    c3 : float;
-    c4 : float
-}
+    vertex_radius : float;
+    edge_thickness : float;
+    search_trace : Graph.search_trace option
+} and input = {
+    wheel : float;
+    mouse : Raylib.Vector2.t;
+    delta : Raylib.Vector2.t;
+    left : button_state;
+    middle : button_state;
+    right : button_state
+} and panel = {
+    name : string;
+    items : gui_item array;
+    mutable displayed : bool
+} and gui_item =
+    Button of {
+        text : string;
+        click : state -> state
+    }
+    | Toggle of {
+        text : string;
+        value : state -> bool;
+        set_value : state -> bool -> state
+    }
+    | Slider of {
+        text : string;
+        min : float;
+        max : float;
+        value : state -> float;
+        set_value : state -> float -> state
+    }
 
-let margin = 10.
-let gui_panel_width = max 100. (0.2 *. w)
-let gui_panel_height = h -. 2. *. margin
-let ctrl_h = 20.
-let ctrl_margin = 30.
+let dragging s =
+    s.dragged_vertex <> None 
+        || Array.exists (fun z -> z.panning) s.zones
 
-let ul_x = (margin *. 2. +. gui_panel_width)
-let ul_y = margin
-let g_w = w -. gui_panel_width -. 3. *. margin
-let g_h = gui_panel_height
-let br_x = ul_x +. g_w
-let br_y = ul_y +. g_h
+let zone_equals z1 z2 = z1.camera = z2.camera && z1.rect = z2.rect
 
-let fit_graph s =
-    let (min_x, min_y), (max_x, max_y) = Layout.bbox pos in
-    let d_x = max_x -. min_x in
-    let d_y = max_y -. min_y in
-    let zoom = max ( (g_w -. 2.4 *. vertex_radius) /. d_x) 
-                   ( (g_h -. 2.4 *. vertex_radius) /. d_y) in
-    { s with
-        zoom = zoom;
-        offset = (-. min_x *. zoom +. 1.2 *. vertex_radius, 
-                  -. min_y *. zoom +. 1.2 *. vertex_radius) }
+let draw_graph s =
+    let open Raylib in 
+    let open Graph in
+    let n = Array.length s.pos in
+    for i = 0 to n-1 do
+    for j = 0 to n-1 do
+        if s.graph.mat.(i).(j) && (i < j || not s.graph.mat.(j).(i))
+        then begin
+            let vi = let x, y = s.pos.(i) in Vector2.create x y in
+            let vj = let x, y = s.pos.(j) in Vector2.create x y in
+            draw_line_ex vi vj s.edge_thickness Color.black
+        end
+    done
+    done;
+    Array.iteri 
+        (fun i v ->
+            let x, y = s.pos.(i) in
+            draw_circle_v (Vector2.create x y) (s.edge_thickness +. s.vertex_radius)
+               (Color.create 0 0 0 255);
+            draw_circle_v (Vector2.create x y) s.vertex_radius
+               (Color.create 255 200 200 255);
+
+            )
+        s.graph.vtx
+
+let input_graph s input zone =
+    let open Raylib in
+    let prevent = ref false in
+    let mouse_in_zone = check_collision_point_rec input.mouse zone.rect in
+    (match s.dragged_vertex with
+    | Some (i, z) when zone_equals z zone ->
+            let zoom = Camera2D.zoom zone.camera in
+            let x, y = s.pos.(i) in
+            s.pos.(i) <-
+                (x +. Vector2.x input.delta /. zoom,
+                y +. Vector2.y input.delta /. zoom)
+    | _ -> ());
+
+    let s = ref s in
+    if mouse_in_zone
+    then begin
+        let mpos = get_screen_to_world_2d input.mouse zone.camera in
+        for i = 0 to Array.length (!s).pos - 1 do
+            let x, y = (!s).pos.(i) in
+            if check_collision_point_circle
+                mpos
+                (Vector2.create x y) (!s).vertex_radius
+            then begin
+                if input.right = Clicked
+                then begin
+                    let pred = Graph.search (!s).graph i Graph.stack_search in
+                    for j = 0 to Array.length (!s).pos - 1 do
+                        match pred.(j) with
+                        | Some k -> Printf.printf "%d->%d " k j
+                        | None -> ()
+                    done;
+                    Printf.printf "\n%!";
+                    prevent := true
+                end;
+                if input.left = Down 
+                then begin
+                    if not (dragging !s)
+                    then (s := { !s with
+                        dragged_vertex = Some (i, zone) });
+                    prevent := true
+                end
+            end
+        done
+    end;
+
+    if input.left = Clicked
+    then s := { !s with dragged_vertex = None };
+
+    !s, !prevent
+
+let fit_zone_to_graph s zone =
+    let (x1, y1), (x2, y2) = Layout.bbox s.pos in
+    let r = zone.rect in
+    let cam = zone.camera in
+    let open Raylib in
+  let x, y, w, h = Rectangle.x r, Rectangle.y r,
+    Rectangle.width r, Rectangle.height r in
+  let zoom = min
+    ( 0.8 *. h /. (y2 -. y1) )
+    ( 0.8 *. w /. (x2 -. x1) ) in
+  Camera2D.set_zoom cam zoom;
+  Camera2D.set_offset cam 
+    (Vector2.create (x +. w *. 0.5) (y +. h *. 0.5));
+  Camera2D.set_target cam
+    (Vector2.create (0.5 *. (x1 +. x2)) (0.5 *. (y1 +. y2)))
+
+let scalable_rect x y width height =
+  Raylib.Rectangle.create (w *. x) (h *. y) (w *. width) (h *. height)
 
 let setup () =
   let iw = int_of_float w in
   let ih = int_of_float h in
-  Raylib.init_window iw ih "Graph layout";
-  Raylib.set_target_fps 60;
-  fit_graph {
-      auto_fit = true;
-      iterate = false;
-      panning = false;
-      dragged_vertex = None;
-      offset = (0.5 *. w, 0.5 *. h);
-      zoom = 1.;
-      curved = false;
-      arrow = true;
-      c1 = 2.;
-      c2 = 1.;
-      c3 = 1.;
-      c4 = 0.1
-  }
+  let open Raylib in
+  init_window iw ih "Graphlab";
+  set_target_fps 60;
+  let g = Graph.hypercube 5 in
+  let pos = Layout.init g 10. in
+  let s = {
+    zones = [|
+        {
+            camera = Camera2D.create 
+                (Vector2.create 0. 0.)
+                (Vector2.create 0. 0.) 0. 1.;
+            rect = scalable_rect 0.3 0.01 0.69 0.98;
+            draw = draw_graph;
+            process_input = input_graph;
+            panning = false
+        };
+        {
+            camera = Camera2D.create 
+                (Vector2.create 0. 0.)
+                (Vector2.create 0. 0.) 0. 0.05;
+            rect = scalable_rect 0.9 0.9 0.095 0.095;
+            draw = draw_graph;
+            process_input = input_graph;
+            panning = false
+        }
+    |];
+    input = {
+        wheel = 0.;
+        mouse = Vector2.create 0. 0.;
+        delta = Vector2.create 0. 0.;
+        left = Up;
+        middle = Up;
+        right = Up
+    };
+    dragged_vertex = None;
+    graph = g;
+    pos = pos;
+    gui = [|
+        { 
+            name = "Layout";
+            items = [|
+                Button {
+                    text = "Randomize";
+                    click = fun s -> { s with pos = Layout.init s.graph 10. }
+                };
+                Toggle {
+                    text = "Iterate";
+                    value = (fun s -> s.iterate);
+                    set_value = fun s b -> { s with iterate = b }
+                };
+                Slider {
+                    text = "c1";
+                    min = 1.;
+                    max = 10.0;
+                    value = (fun s -> match s.layout with
+                                (c1, c2, c3, c4) -> c1);
+                    set_value = (fun s v -> match s.layout with
+                        (c1, c2, c3, c4) -> { s with layout = (v, c2, c3, c4) })
+                };
+                Slider {
+                    text = "c2";
+                    min = 1.;
+                    max = 10.0;
+                    value = (fun s -> match s.layout with
+                                (c1, c2, c3, c4) -> c2);
+                    set_value = (fun s v -> match s.layout with
+                        (c1, c2, c3, c4) -> { s with layout = (c1, v, c3, c4) })
+                };
+                Slider {
+                    text = "c3";
+                    min = 1.;
+                    max = 10.0;
+                    value = (fun s -> match s.layout with
+                                (c1, c2, c3, c4) -> c3);
+                    set_value = (fun s v -> match s.layout with
+                        (c1, c2, c3, c4) -> { s with layout = (c1, c2, v, c4) })
+                };
+                Slider {
+                    text = "c4";
+                    min = 0.01;
+                    max = 1.0;
+                    value = (fun s -> match s.layout with
+                                (c1, c2, c3, c4) -> c4);
+                    set_value = (fun s v -> match s.layout with
+                        (c1, c2, c3, c4) -> { s with layout = (c1, c2, c3, v) })
+                }
+            |];
+            displayed = true
+        }
+    |];
+    layout = (2., 1., 1., 0.1);
+    iterate = true;
+    edge_thickness = 0.02;
+    vertex_radius = 0.1;
+    search_trace = None
+  } in
+  for i = 0 to Array.length s.zones - 1 do
+      fit_zone_to_graph s s.zones.(i)
+  done;
+  s
 
-
-let draw_gui s = 
+let process_zone s input zone =
     let open Raylib in
-    let open Raygui in
+    let x = int_of_float (Rectangle.x zone.rect) in
+    let y = int_of_float (Rectangle.y zone.rect) in
+    let width = int_of_float (Rectangle.width zone.rect) in
+    let height = int_of_float (Rectangle.height zone.rect) in
+    begin_scissor_mode x y width height;
+    clear_background Color.raywhite;
+    begin_mode_2d zone.camera;
+    zone.draw s;
+    end_mode_2d ();
+    end_scissor_mode ();
 
-    panel (Rectangle.create 
-        margin margin gui_panel_width gui_panel_height);
-
-    let ctrl_rect n =
-          (Rectangle.create 
-          (margin +. ctrl_margin)
-          (margin +. ctrl_h +. (float_of_int n) *. 1.5 *. ctrl_h) 
-          (gui_panel_width -. 2. *. ctrl_margin) ctrl_h)
-    in
-
-    let zoom = ref s.zoom in
-
-    let do_reset = Raygui.(button 
-        (ctrl_rect 0) "Reset") in
-
-
-    let iterate = Raygui.(toggle 
-        (ctrl_rect 1)
-        "Place" s.iterate) in
-    let auto_fit = Raygui.(toggle 
-        (ctrl_rect 2)
-        "Auto. Fit" s.auto_fit) in
-
-    let curved = Raygui.(toggle 
-        (ctrl_rect 3)
-        "Curved" s.curved) in
-    let arrow = Raygui.(toggle 
-        (ctrl_rect 4)
-        "Arrow on edge" s.arrow) in
-
-    let n = Graph.nvertices g in
-    if iterate
+    let s, prevent = zone.process_input s input zone in
+    let mouse_in_zone = check_collision_point_rec input.mouse zone.rect in
+    if not prevent && mouse_in_zone
     then begin
-        Array.blit (Layout.iterate g pos 
-        (s.c1, s.c2, s.c3, s.c4) ) 0 pos 0 n
-    end;
-    if do_reset
-    then begin
-        Array.blit (Layout.init g) 0 pos 0 n
+        if input.wheel <> 0.
+        then (
+            let m = (1. +. input.wheel *. 0.1) in
+            (*
+            let pos = get_screen_to_world_2d input.mouse zone.camera in
+*)
+            Camera2D.set_zoom zone.camera (m *. (Camera2D.zoom zone.camera))
+            (*
+            let pos' = get_screen_to_world_2d input.mouse zone.camera in
+            let delta = Vector2.subtract pos' pos in
+            Camera2D.set_offset zone.camera
+                (Vector2.add delta (Camera2D.offset zone.camera))
+        *)
+        );
+        if not (dragging s) && input.left = Down
+        then zone.panning <- true
     end;
 
-    let sl = 5 in
-    let c1 = slider 
-      (ctrl_rect sl)
-      "c1" (Printf.sprintf "%0.2f" s.c1) s.c1 ~min:0.1 ~max:3. in
-    let c2 = Raygui.(slider 
-      (ctrl_rect (sl+1))
-      "c2" (Printf.sprintf "%0.2f" s.c2) s.c2 ~min:0.1 ~max:3.) in
-    let c3 = Raygui.(slider 
-      (ctrl_rect (sl+2))
-        "c3" (Printf.sprintf "%0.2f" s.c3) s.c3 ~min:0.1 ~max:3.) in
-    let c4 = Raygui.(slider 
-      (ctrl_rect (sl+3))
-        "c4" (Printf.sprintf "%0.3f" s.c4) s.c4 ~min:0.001 ~max:0.1) in
+    if zone.panning && input.left = Clicked
+    then zone.panning <- false;
 
-    let s = { s with 
-        c1 = c1; 
-        c2 = c2; 
-        c3 = c3; 
-        c4 = c4; 
-        iterate = iterate;
-        curved = curved;
-        arrow = arrow;
-        auto_fit = auto_fit 
-    } in
+    if zone.panning
+    then begin
+        Camera2D.set_offset
+            zone.camera
+            (Vector2.add (Camera2D.offset zone.camera) input.delta)
+    end;
 
-    if auto_fit
-    then fit_graph s
-    else s
+    s
 
-let draw_graph s =
-      let open Raylib in
-      let n = Graph.nvertices g in
-
-      let wheel = get_mouse_wheel_move () in
-      let zoom = s.zoom in
-      let o_x, o_y = s.offset in
-
-            let mpos = get_mouse_position () in
-            let mpos_x, mpos_y = Vector2.x mpos -. ul_x, 
-                                 Vector2.y mpos -. ul_y in
-
-      let zoom, o_x, o_y =
-          if wheel <> 0.
-          then begin
-            let m = (1. +. wheel *. 0.1) in
-            let m_x = (mpos_x -. o_x) /. zoom in
-            let m_y = (mpos_y -. o_y) /. zoom in
-            let o_x = mpos_x -. m_x *. zoom *. m in
-            let o_y = mpos_y -. m_y *. zoom *. m in
-            m *. zoom, o_x, o_y
-          end else zoom, o_x, o_y in
-
-      let panning, o_x, o_y = if s.panning
-          then begin
-              if is_mouse_button_released MouseButton.Middle
-              then false, o_x, o_y
-              else begin
-                  let v = get_mouse_delta () in
-                  true, o_x +. Vector2.x v, o_y +. Vector2.y v
-              end
-          end else is_mouse_button_down MouseButton.Middle, o_x, o_y
-      in
-
-      let r_g = Rectangle.create ul_x ul_y g_w g_h in
-
-      let (min_x, min_y), (max_x, max_y) = Layout.bbox pos in
-      let p2w (x, y) = 
-          x *. zoom +. o_x, y *. zoom +. o_y
-      in
-      let w2p (x, y) =
-          (x -. o_x) /. zoom, (y -. o_y) /. zoom
-      in
-
-      let dragged_vertex = ref s.dragged_vertex in
-      if is_mouse_button_released MouseButton.Left
-      then dragged_vertex := None
-      else if is_mouse_button_down MouseButton.Left
-      then begin
-          match s.dragged_vertex with
-          | None -> begin
-              for i = 0 to n-1 do
-                  let x, y = p2w pos.(i) in
-                  let d = (x -. mpos_x) ** 2. 
-                        +. (y -. mpos_y) ** 2. in
-                  if d < vertex_radius ** 2.0
-                  then dragged_vertex := Some i
-              done
-          end
-          | Some v -> 
-                let x, y = w2p (mpos_x, mpos_y) in
-                pos.(v) <- (x, y)
-      end;
-
-    Raygui.panel r_g;
-
-    (* Draw edges *)
-    let draw_edge x y x' y' =
-        let v = Vector2.create (ul_x +. x) (ul_y +. y) in
-        let v' = Vector2.create (ul_x +. x') (ul_y +. y') in
-        (if s.curved then draw_line_bezier else draw_line_ex) 
-            v v' (vertex_radius /. 5.)
-            (Color.create 0 0 0 100);
-        let vv' = Vector2.subtract v' v in
-        let l = Vector2.length vv' in
-        let dvv' = Vector2.normalize vv' in
-        let perp = Vector2.rotate dvv' (3.14 /. 2.) in
-        let arrow_height = vertex_radius *. 0.7 in
-        let v'' = Vector2.add v' 
-            (Vector2.scale dvv' (-. vertex_radius)) in
-        let v1 = Vector2.add 
-            (Vector2.add v' 
-            (Vector2.scale dvv' (-. vertex_radius *. 2. )))
-            (Vector2.scale perp arrow_height) in
-        let v2 = Vector2.add 
-            (Vector2.add v' 
-            (Vector2.scale dvv' (-. vertex_radius *. 2. )))
-            (Vector2.scale perp (-. arrow_height)) in
-        if s.arrow
-        then draw_triangle v'' v2 v1 
-                (Color.create 0 0 0 128)
+let get_input input = 
+    let open Raylib in
+    let mouse_state old b =
+        if is_mouse_button_down b
+        then Down
+        else if is_mouse_button_released b && old = Down
+             then Clicked
+             else Up
     in
-
-
-      for i = 0 to n-1 do
-        let x, y = p2w pos.(i) in
-        if 0. <= x && x < g_w && 0. <= y && y < g_h
-        then
-            for j = 0 to n-1 do
-                let x', y' = p2w pos.(j) in
-                if (* 0. <= x' && x' < g_w 
-                    && 0. <= y' && y' < g_h && *) g.Graph.mat.(i).(j)
-                    && (i < j || not g.Graph.mat.(j).(i))
-                then begin
-                    draw_edge x y x' y'
-                end
-            done
-      done;
-      (* Draw vertices *)
-      let draw_vertex n x y =
-          let px = int_of_float (x +. ul_x) in
-          let py = int_of_float (y +. ul_y) in
-          draw_circle_gradient px py vertex_radius
-            (Color.create 255 200 200 255)
-            (Color.create 200 0 0 255) ;
-        let fs = (int_of_float (vertex_radius *. 1.0)) in
-        let sn = Printf.sprintf "%d" n in
-        let tw = measure_text sn fs in
-          draw_text sn (px-tw/2) (py-fs/2) fs (Color.white)
-      in
-
-      for i = 0 to n-1 do
-          let x, y = p2w pos.(i) in
-        if 0. <= x && x < g_w -. 0. 
-           && 0. <= y && y < g_h -. 0.
-        then draw_vertex g.Graph.vtx.(i) x y
-      done;
-
-      { s with dragged_vertex = !dragged_vertex;
-        panning = panning; zoom = zoom; offset = (o_x, o_y) }
+    {
+        wheel = get_mouse_wheel_move ();
+        mouse = get_mouse_position ();
+        delta = get_mouse_delta ();
+        left = mouse_state input.left MouseButton.Left;
+        middle = mouse_state input.middle MouseButton.Middle;
+        right = mouse_state input.right MouseButton.Right
+    }
 
 let rec loop s =
   match Raylib.window_should_close () with
@@ -276,10 +327,96 @@ let rec loop s =
       begin_drawing ();
       clear_background Color.gray;
 
-      let s = draw_gui s in
-      let s = draw_graph s in
+      let input = get_input s.input in
+      let s' = ref { s with input = input } in
+
+    let rgui = scalable_rect 0.01 0.01 0.275 0.98 in
+    Raygui.panel rgui;
+    
+    let x = 5. +. Rectangle.x rgui in
+    let ctrl_width = Rectangle.width rgui -. 10. in
+    let ctrl_height = 20. in
+    let dec = ref (5. +. Rectangle.y rgui) in
+    for i = 0 to Array.length s.gui - 1 do
+        let p = s.gui.(i) in
+
+        let r = Rectangle.create x !dec 20. ctrl_height in
+
+        p.displayed <- Raygui.check_box r p.name p.displayed;
+
+        if p.displayed
+        then begin
+            let n_child = Array.length p.items in
+            let r_items = Rectangle.create
+                x (!dec +. ctrl_height +. 5.)
+                ctrl_width
+                ( 5. +. (ctrl_height +. 5.) *. float_of_int n_child )
+            in 
+            Raygui.panel r_items;
+            for j = 0 to n_child - 1 do
+                match p.items.(j) with
+                | Toggle t ->
+                    let v = Raygui.toggle (Rectangle.create
+                        (x +. 5.) (!dec +. 5. +. 
+                            (1. +. float_of_int j) *. (ctrl_height +. 5.))
+                        (ctrl_width -. 10.) (ctrl_height)
+                    ) t.text (t.value s) in
+                    s' := t.set_value (!s') v
+                | Button b ->
+                    if Raygui.button (Rectangle.create
+                        (x +. 5.) (!dec +. 5. +. 
+                            (1. +. float_of_int j) *. (ctrl_height +. 5.))
+                        (ctrl_width -. 10.) (ctrl_height)
+                    ) b.text
+                    then s' := b.click (!s')
+                | Slider t ->
+                    let v = Raygui.slider (Rectangle.create
+                        (x +. 30.) (!dec +. 5. +. 
+                            (1. +. float_of_int j) *. (ctrl_height +. 5.))
+                        (ctrl_width -. 70.) (ctrl_height))
+                        t.text (Printf.sprintf "%0.3f" @@ t.value s)
+                        (t.value s) ~min:t.min ~max:t.max
+                    in s' := t.set_value (!s') v
+            done
+        end
+    done;
+
+      (* Last zone (on top) is fit to size *)
+      fit_zone_to_graph s s.zones.(Array.length s.zones - 1);
+
+      let extend r =
+          let b = 5. in
+          Rectangle.create
+            (Rectangle.x r -. b)
+            (Rectangle.y r -. b)
+            (Rectangle.width r +. 2. *. b)
+            (Rectangle.height r +. 2. *. b)
+     in
+      
+      for i = 0 to Array.length s.zones - 1 do
+          let zone = s.zones.(i) in
+          draw_rectangle_gradient_ex 
+            (extend zone.rect)
+            Color.white Color.darkblue Color.black Color.blue;
+          s' := process_zone !s' input zone
+      done;
+
+      if (!s').iterate
+      then begin
+          let npos = Layout.iterate (!s').graph (!s').pos (!s').layout in
+          for i = 0 to Array.length (!s').pos - 1 do
+              let ign = match (!s').dragged_vertex with
+              | None -> false
+              | Some (j, _) when j = i -> true
+              | _ -> false in
+              if not ign
+              then (!s').pos.(i) <- npos.(i)
+          done 
+      end;
 
       end_drawing ();
-      loop s
+      loop !s'
 
-let () = setup () |> loop
+let () = 
+    Printexc.record_backtrace true;
+    setup () |> loop
