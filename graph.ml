@@ -4,6 +4,22 @@ type 'a t = {
 }
 
 let nvertices g = Array.length g.vtx
+let nedges g =
+    let n = nvertices g in
+    let c = ref 0 in
+    for i = 0 to n-1 do
+        for j = 0 to n-1 do
+            if g.mat.(i).(j)
+            then incr c
+        done
+    done;
+    !c
+
+let average_degree g =
+    let n = nvertices g in
+    let p = nedges g in
+    float_of_int p /. float_of_int n
+
 let init_matrix n p f =
     Array.init n
         (fun i -> Array.init p (f i))
@@ -18,18 +34,18 @@ let symetric g =
     done
 
 let mobius n = {
-    vtx = Array.init n (fun i -> i);
+    vtx = Array.init n (fun i -> string_of_int i);
     mat = init_matrix n n (fun i j -> 
         (i+1) mod n = j || (i+n/2) mod n = j)
 }
 
 let cycle n = {
-    vtx = Array.init n (fun i -> i);
+    vtx = Array.init n (fun i -> string_of_int i);
     mat = init_matrix n n (fun i j -> (i+1) mod n = j)
 }
 
 let complet n = {
-    vtx = Array.init n (fun i -> i);
+    vtx = Array.init n (fun i -> string_of_int i);
     mat = init_matrix n n (fun i j -> i <> j)
 }
 
@@ -40,13 +56,13 @@ let rec count_bit n =
 let hypercube n = 
     let p = 1 lsl n in
     {
-        vtx = Array.init p (fun i -> i);
+        vtx = Array.init p (fun i -> string_of_int i);
         mat = init_matrix p p (fun i j -> count_bit (i lxor j) = 1)
     }
 
 let divisors n =
     {
-        vtx = Array.init n (fun i -> i+1);
+        vtx = Array.init n (fun i -> string_of_int (i+1));
         mat = init_matrix n n (fun i j ->
             i < j && (j+1) mod (i+1) == 0)
     }
@@ -67,37 +83,67 @@ type ('a, 'b) search_structure = {
     init : unit -> 'b;
     take : 'b -> 'a;
     add : 'a -> 'b  -> unit;
-    is_empty : 'b -> bool
+    is_empty : 'b -> bool;
+    to_list : 'b -> 'a list
 }
 
 let stack_search = {
     init = Stack.create;
     take = Stack.pop;
     add = Stack.push;
-    is_empty = Stack.is_empty
+    is_empty = Stack.is_empty;
+    to_list = fun s -> List.of_seq (Stack.to_seq s)
 }
 
 let queue_search = {
     init = Queue.create;
     take = Queue.take;
     add = Queue.push;
-    is_empty = Queue.is_empty
+    is_empty = Queue.is_empty;
+    to_list = fun s -> List.of_seq (Queue.to_seq s)
 }
 
-let search g x ss =
+let search g src ss =
     let to_visit = ss.init () in
     let n = Array.length g.vtx in
     let visited = Array.make n false in
     let pred = Array.make n None in
 
-    ss.add x to_visit;
+    let get_pred () = 
+        let l = ref [] in
+        for i = 0 to n-1 do
+            match pred.(i) with
+            | None -> ()
+            | Some j -> l := (j, i) :: !l
+        done;
+        !l
+    in
+
+    let get_visited () =
+        let l = ref [] in
+        for i = 0 to n-1 do
+            if visited.(i)
+            then l := i :: !l
+        done;
+        !l
+    in
+
+    let steps = ref [] in
+
+    ss.add src to_visit;
     while not (ss.is_empty to_visit) do
         let x = ss.take to_visit in
         if not visited.(x)
         then begin
+            let step = {
+                visited = get_visited ();
+                to_visit = ss.to_list to_visit;
+                current = x;
+                pred = get_pred () } in
+            steps := step :: !steps;
             visited.(x) <- true;
             for i = 0 to n-1 do
-                if g.mat.(x).(i) && pred.(i) = None
+                if g.mat.(x).(i) && pred.(i) = None && i <> src
                 then begin
                     pred.(i) <- Some x;
                     ss.add i to_visit
@@ -105,7 +151,10 @@ let search g x ss =
             done
         end
     done;
-    pred
+    {
+        steps = List.rev !steps;
+        source = src
+    }
 
 
 let text_matrix g = 

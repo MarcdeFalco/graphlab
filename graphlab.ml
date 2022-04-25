@@ -10,7 +10,7 @@ type zone = {
     mutable panning : bool
 } and state = {
     zones : zone array;
-    graph : int Graph.t;
+    graph : string Graph.t;
     (* TODO move to Vector2 *)
     pos : (float * float) array; 
     dragged_vertex : (int * zone) option;
@@ -20,7 +20,11 @@ type zone = {
     iterate : bool;
     vertex_radius : float;
     edge_thickness : float;
-    search_trace : Graph.search_trace option
+    search_stack : bool;
+    search_trace : Graph.search_trace option;
+    current_search_trace_steps : int;
+    graph_radius : float;
+    show_arrows : bool
 } and input = {
     wheel : float;
     mouse : Raylib.Vector2.t;
@@ -34,7 +38,7 @@ type zone = {
     mutable displayed : bool
 } and gui_item =
     Button of {
-        text : string;
+        text : state -> string;
         click : state -> state
     }
     | Toggle of {
@@ -48,6 +52,12 @@ type zone = {
         max : float;
         value : state -> float;
         set_value : state -> float -> state
+    }
+    | Spinner of {
+        text : string;
+        max : state -> int;
+        value : state -> int;
+        set_value : state -> int -> state
     }
     | Textbox of {
         text : state -> string;
@@ -63,27 +73,101 @@ let zone_equals z1 z2 = z1.camera = z2.camera && z1.rect = z2.rect
 let draw_graph s =
     let open Raylib in 
     let open Graph in
+
+
+    let draw_edge i j thickness color show_arrows =
+        let vi = let x, y = s.pos.(i) in Vector2.create x y in
+        let vj = let x, y = s.pos.(j) in Vector2.create x y in
+        draw_line_ex vi vj thickness color;
+        if show_arrows
+        then begin
+            let vij = Vector2.subtract vj vi in
+            let l = Vector2.length vij in
+            let dij = Vector2.normalize vij in
+            let perp = Vector2.rotate dij (3.14 /. 2.) in
+            let arrow_height = thickness *. 3. in
+            let v = Vector2.add vj 
+                (Vector2.scale dij (-. s.vertex_radius)) in
+            let v1 = Vector2.add 
+                (Vector2.add vj 
+                (Vector2.scale dij (-. s.vertex_radius *. 2. )))
+                (Vector2.scale perp arrow_height) in
+            let v2 = Vector2.add 
+                (Vector2.add vj
+                (Vector2.scale dij (-. s.vertex_radius *. 2. )))
+                (Vector2.scale perp (-. arrow_height)) in
+            draw_triangle v v2 v1 color
+        end
+    in
+
+
     let n = Array.length s.pos in
     for i = 0 to n-1 do
     for j = 0 to n-1 do
-        if s.graph.mat.(i).(j) && (i < j || not s.graph.mat.(j).(i))
+        if s.graph.mat.(i).(j) && (s.show_arrows || i < j || not s.graph.mat.(j).(i))
         then begin
-            let vi = let x, y = s.pos.(i) in Vector2.create x y in
-            let vj = let x, y = s.pos.(j) in Vector2.create x y in
-            draw_line_ex vi vj s.edge_thickness Color.black
+            draw_edge i j s.edge_thickness (Color.create 0 0 0 255)
+            s.show_arrows
         end
     done
     done;
+
+    (match s.search_trace with
+    | None -> ()
+    | Some st -> begin
+            let step = List.nth st.steps s.current_search_trace_steps in
+            List.iter (fun (i,j) ->
+                draw_edge i j (1.5 *. s.edge_thickness)
+                    (Color.create 255 0 0 255) true) step.pred
+        end)
+    ;
+
     Array.iteri 
         (fun i v ->
             let x, y = s.pos.(i) in
             draw_circle_v (Vector2.create x y) (s.edge_thickness +. s.vertex_radius)
                (Color.create 0 0 0 255);
             draw_circle_v (Vector2.create x y) s.vertex_radius
-               (Color.create 255 200 200 255);
+               (Color.create 128 128 128 255)            )
+        s.graph.vtx;
 
-            )
-        s.graph.vtx
+    (match s.search_trace with
+    | None -> ()
+    | Some st -> begin
+            let x, y = s.pos.(st.source) in
+            draw_circle_v (Vector2.create x y) s.vertex_radius
+               (Color.create 255 0 0 255);
+
+            let step = List.nth st.steps s.current_search_trace_steps in
+
+            List.iter (fun i ->
+                let x, y = s.pos.(i) in
+                draw_circle_v 
+                   (Vector2.create x y) s.vertex_radius
+                   (Color.create 0 0 0 255)) step.visited;
+            
+            List.iter (fun i ->
+                let x, y = s.pos.(i) in
+                draw_circle_v 
+                   (Vector2.create x y) s.vertex_radius
+                   (Color.create 0 0 255 255)) step.to_visit;
+            
+            let x, y = s.pos.(step.current) in
+            draw_circle_v 
+               (Vector2.create x y) s.vertex_radius
+               (Color.create 0 255 0 255);
+
+    end);
+
+    Array.iteri 
+        (fun i v ->
+            let x, y = s.pos.(i) in
+            let fs = (int_of_float (s.vertex_radius *. 1.0)) in
+            let lbl = s.graph.Graph.vtx.(i) in
+            let tw = measure_text lbl fs in
+            draw_text lbl (int_of_float x-tw/2) (int_of_float y-fs/2) 
+                fs (Color.white)) s.graph.Graph.vtx
+
 
 let input_graph s input zone =
     let open Raylib in
@@ -110,13 +194,14 @@ let input_graph s input zone =
             then begin
                 if input.right = Clicked
                 then begin
-                    let pred = Graph.search (!s).graph i Graph.stack_search in
-                    for j = 0 to Array.length (!s).pos - 1 do
-                        match pred.(j) with
-                        | Some k -> Printf.printf "%d->%d " k j
-                        | None -> ()
-                    done;
-                    Printf.printf "\n%!";
+                    s := { !s with
+                       search_trace = Some (
+                            (if (!s).search_stack
+                            then Graph.search (!s).graph i Graph.stack_search
+                            else Graph.search (!s).graph i  Graph.queue_search)
+                       );
+                       current_search_trace_steps = 0
+                    };
                     prevent := true
                 end;
                 if input.left = Down 
@@ -160,8 +245,12 @@ let setup () =
   let open Raylib in
   init_window iw ih "Graphlab";
   set_target_fps 60;
-  let g = Graph.complet 5 in
-  let pos = Layout.init g 10. in
+  set_config_flags [ConfigFlags.Window_highdpi; ConfigFlags.Msaa_4x_hint];
+  let g = Graph.hypercube 3 in
+  let n = Graph.nvertices g in
+  let p = Graph.nedges g in
+  let graph_radius = float_of_int (Array.length g.Graph.vtx) *. 50. in
+  let pos = Layout.eades g graph_radius in
   let s = {
     zones = [|
         {
@@ -196,6 +285,45 @@ let setup () =
     pos = pos;
     gui = [|
         {
+            name = "Style";
+            items = [|
+                Toggle {
+                    text = "Show arrows";
+                    value = (fun s -> s.show_arrows);
+                    set_value = fun s b -> { s with show_arrows = b }
+                }
+            |];
+            displayed = true
+        };
+        {
+            name = "Search";
+            items = [|
+                Button {
+                    text = (fun _ -> "Reset");
+                    click = fun s -> 
+                        { s with search_trace = None }
+                };
+                Button {
+                    text = (fun s -> if s.search_stack then "Stack (DFS)" else
+                        "Queue (BFS)");
+                    click = fun s -> { s with search_stack = not s.search_stack }
+                };
+                Spinner {
+                    text = "step";
+                    max = (fun s -> match s.search_trace with
+                        | None -> 0
+                        | Some l -> List.length l.steps - 1);
+                    value = (fun s -> s.current_search_trace_steps);
+                    set_value = (fun s v -> { s with current_search_trace_steps
+                    =   (match s.search_trace with
+                        | None -> 0
+                        | Some l -> min (max 0 v) (List.length l.steps - 1)
+                    )})
+                    }
+            |];
+            displayed = true
+        };
+        {
             name = "Repr.";
             items = [|
                 Textbox {
@@ -208,14 +336,14 @@ let setup () =
                 }
 
             |];
-            displayed = true
+            displayed = false
         };
         { 
             name = "Layout";
             items = [|
                 Button {
-                    text = "Randomize";
-                    click = fun s -> { s with pos = Layout.init s.graph 10. }
+                    text = (fun _ -> "Randomize");
+                    click = fun s -> { s with pos = Layout.init s.graph s.graph_radius }
                 };
                 Toggle {
                     text = "Iterate";
@@ -251,8 +379,8 @@ let setup () =
                 };
                 Slider {
                     text = "c4";
-                    min = 0.01;
-                    max = 1.0;
+                    min = 0.0;
+                    max = 0.2;
                     value = (fun s -> match s.layout with
                                 (c1, c2, c3, c4) -> c4);
                     set_value = (fun s v -> match s.layout with
@@ -262,11 +390,15 @@ let setup () =
             displayed = true
         }
     |];
-    layout = (2., 1., 1., 0.1);
+    layout = Layout.optimal_parameters g;
     iterate = true;
-    edge_thickness = 0.02;
-    vertex_radius = 0.1;
-    search_trace = None
+    edge_thickness = 1.;
+    vertex_radius = 10.;
+    graph_radius = graph_radius;
+    search_stack = true;
+    search_trace = None;
+    current_search_trace_steps = 0;
+    show_arrows = true
   } in
   for i = 0 to Array.length s.zones - 1 do
       fit_zone_to_graph s s.zones.(i)
@@ -396,9 +528,19 @@ let rec loop s =
                     (if Raygui.button (Rectangle.create
                         (x +. 5.) !dec
                         (ctrl_width -. 10.) (ctrl_height)
-                    ) b.text
+                    ) (b.text s)
                     then s' := b.click (!s') );
                     dec := !dec +. ctrl_height +. 5.;
+                | Spinner t ->
+                    let v, b = Raygui.spinner (Rectangle.create
+                        (x +. 30.) !dec
+                        (ctrl_width -. 70.) (ctrl_height))
+                        t.text (t.value s)
+                        ~min:0 ~max:(t.max s)
+                        false
+                    in 
+                    dec := !dec +. ctrl_height +. 5.;
+                    s' := t.set_value (!s') v
                 | Slider t ->
                     let v = Raygui.slider (Rectangle.create
                         (x +. 30.) !dec
@@ -442,7 +584,8 @@ let rec loop s =
 
       if (!s').iterate
       then begin
-          let npos = Layout.iterate (!s').graph (!s').pos (!s').layout in
+          let npos = Layout.iterate (!s').graph (!s').pos 
+            (!s').layout (!s').graph_radius in
           for i = 0 to Array.length (!s').pos - 1 do
               let ign = match (!s').dragged_vertex with
               | None -> false
