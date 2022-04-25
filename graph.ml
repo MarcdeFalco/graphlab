@@ -28,6 +28,11 @@ let cycle n = {
     mat = init_matrix n n (fun i j -> (i+1) mod n = j)
 }
 
+let complet n = {
+    vtx = Array.init n (fun i -> i);
+    mat = init_matrix n n (fun i j -> i <> j)
+}
+
 let rec count_bit n =
     if n = 0 then 0
     else (n mod 2) + count_bit (n/2)
@@ -46,14 +51,16 @@ let divisors n =
             i < j && (j+1) mod (i+1) == 0)
     }
 
-type search_trace = {
-    source : int;
-    steps : search_step list
-} and search_step = {
+type search_step = {
     visited : int list;
     to_visit : int list;
     current : int;
     pred : (int * int) list
+}
+
+type search_trace = {
+    source : int;
+    steps : search_step list
 }
 
 type ('a, 'b) search_structure = {
@@ -100,5 +107,29 @@ let search g x ss =
     done;
     pred
 
+
+let text_matrix g = 
+    let s = ref "" in
+    let n = Array.length g.vtx in
+    for i = 0 to n-1 do
+        for j = 0 to n-1 do
+            s := !s ^ (if g.mat.(i).(j) then "1 " else "0 ")
+        done;
+        s := !s ^ "\n"
+    done;
+    !s
+
+let text_ladj g =
+    let s = ref "" in
+    let n = Array.length g.vtx in
+    for i = 0 to n-1 do
+        s := !s ^ Printf.sprintf "%d : [" i;
+        for j = 0 to n-1 do
+            if g.mat.(i).(j)
+            then s := !s ^ Printf.sprintf "%d," j
+        done;
+        s := !s ^ "]\n"
+    done;
+    !s
 
 

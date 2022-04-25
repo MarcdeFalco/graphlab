@@ -1,4 +1,4 @@
-let w, h, ch = 800., 800., 20.
+let w, h, ch = 1400., 880., 20.
 
 type button_state = Down | Up | Clicked
 
@@ -48,6 +48,10 @@ type zone = {
         max : float;
         value : state -> float;
         set_value : state -> float -> state
+    }
+    | Textbox of {
+        text : state -> string;
+        height : float
     }
 
 let dragging s =
@@ -156,7 +160,7 @@ let setup () =
   let open Raylib in
   init_window iw ih "Graphlab";
   set_target_fps 60;
-  let g = Graph.hypercube 5 in
+  let g = Graph.complet 5 in
   let pos = Layout.init g 10. in
   let s = {
     zones = [|
@@ -191,6 +195,21 @@ let setup () =
     graph = g;
     pos = pos;
     gui = [|
+        {
+            name = "Repr.";
+            items = [|
+                Textbox {
+                    text = (fun s -> Graph.text_matrix s.graph);
+                    height = 200.
+                };
+                Textbox {
+                    text = (fun s -> Graph.text_ladj s.graph);
+                    height = 200.
+                }
+
+            |];
+            displayed = true
+        };
         { 
             name = "Layout";
             items = [|
@@ -260,6 +279,7 @@ let process_zone s input zone =
     let y = int_of_float (Rectangle.y zone.rect) in
     let width = int_of_float (Rectangle.width zone.rect) in
     let height = int_of_float (Rectangle.height zone.rect) in
+
     begin_scissor_mode x y width height;
     clear_background Color.raywhite;
     begin_mode_2d zone.camera;
@@ -344,39 +364,58 @@ let rec loop s =
 
         p.displayed <- Raygui.check_box r p.name p.displayed;
 
+        dec := !dec +. ctrl_height +. 5.;
+
         if p.displayed
         then begin
             let n_child = Array.length p.items in
+
+            let total_size = ref 0. in
+            for j = 0 to n_child - 1 do
+                match p.items.(j) with
+                | Textbox t -> total_size := !total_size +. t.height
+                | _ -> total_size := !total_size  +. ctrl_height +. 5.
+            done;
+
             let r_items = Rectangle.create
-                x (!dec +. ctrl_height +. 5.)
+                x !dec 
                 ctrl_width
-                ( 5. +. (ctrl_height +. 5.) *. float_of_int n_child )
+                !total_size
             in 
             Raygui.panel r_items;
             for j = 0 to n_child - 1 do
                 match p.items.(j) with
                 | Toggle t ->
                     let v = Raygui.toggle (Rectangle.create
-                        (x +. 5.) (!dec +. 5. +. 
-                            (1. +. float_of_int j) *. (ctrl_height +. 5.))
+                        (x +. 5.) !dec
                         (ctrl_width -. 10.) (ctrl_height)
                     ) t.text (t.value s) in
+                    dec := !dec +. ctrl_height +. 5.;
                     s' := t.set_value (!s') v
                 | Button b ->
-                    if Raygui.button (Rectangle.create
-                        (x +. 5.) (!dec +. 5. +. 
-                            (1. +. float_of_int j) *. (ctrl_height +. 5.))
+                    (if Raygui.button (Rectangle.create
+                        (x +. 5.) !dec
                         (ctrl_width -. 10.) (ctrl_height)
                     ) b.text
-                    then s' := b.click (!s')
+                    then s' := b.click (!s') );
+                    dec := !dec +. ctrl_height +. 5.;
                 | Slider t ->
                     let v = Raygui.slider (Rectangle.create
-                        (x +. 30.) (!dec +. 5. +. 
-                            (1. +. float_of_int j) *. (ctrl_height +. 5.))
+                        (x +. 30.) !dec
                         (ctrl_width -. 70.) (ctrl_height))
                         t.text (Printf.sprintf "%0.3f" @@ t.value s)
                         (t.value s) ~min:t.min ~max:t.max
-                    in s' := t.set_value (!s') v
+                    in 
+                    dec := !dec +. ctrl_height +. 5.;
+                    s' := t.set_value (!s') v
+                | Textbox t ->
+                        let text = t.text s in
+                        let r = Rectangle.create 
+                            (x +. 5.) !dec
+                            (ctrl_width -. 10.) t.height in
+                        dec := !dec +. t.height;
+                        let _ = Raygui.text_box_multi r text false in
+                        ()
             done
         end
     done;
