@@ -33,6 +33,18 @@ let symetric g =
         done
     done
 
+let grid n = {
+    vtx = Array.init (n*n) (fun i ->
+            Printf.sprintf "%d,%d"
+            (i mod n) (i / n));
+    mat = init_matrix (n*n) (n*n) (fun i j ->
+        let x, y = i mod n, i / n in
+        let x', y' = j mod n, j / n in
+           (x = x' && abs (y - y') = 1)
+        || (y = y' && abs (x - x') = 1))
+}
+        
+
 let mobius n = {
     vtx = Array.init n (fun i -> string_of_int i);
     mat = init_matrix n n (fun i j -> 

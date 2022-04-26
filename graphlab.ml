@@ -63,6 +63,11 @@ type zone = {
         text : state -> string;
         height : float
     }
+    | Dropdown of {
+        choices : (string * (state -> state)) array;
+        mutable active : bool;
+        mutable selected : int
+    }
 
 let dragging s =
     s.dragged_vertex <> None 
@@ -245,12 +250,22 @@ let setup () =
   let open Raylib in
   init_window iw ih "Graphlab";
   set_target_fps 60;
-  set_config_flags [ConfigFlags.Window_highdpi; ConfigFlags.Msaa_4x_hint];
-  let g = Graph.hypercube 3 in
+  set_config_flags [ConfigFlags.Msaa_4x_hint];
+  let g = Graph.grid 5 in
   let n = Graph.nvertices g in
   let p = Graph.nedges g in
   let graph_radius = float_of_int (Array.length g.Graph.vtx) *. 50. in
   let pos = Layout.eades g graph_radius in
+  let set_graph g s =
+    let graph_radius = float_of_int (Array.length g.Graph.vtx) *. 50. in
+    let pos = Layout.eades g graph_radius in
+    let s = { s with graph = g; pos = pos } in
+    for i = 0 to Array.length s.zones - 1 do
+        fit_zone_to_graph s s.zones.(i)
+    done;
+    s
+  in
+
   let s = {
     zones = [|
         {
@@ -291,11 +306,25 @@ let setup () =
                     text = "Show arrows";
                     value = (fun s -> s.show_arrows);
                     set_value = fun s b -> { s with show_arrows = b }
+                };
+                Slider {
+                    text = "vtx";
+                    min = 1.;
+                    max = 100.0;
+                    value = (fun s -> s.vertex_radius);
+                    set_value = (fun s v -> { s with vertex_radius = v })
+                };
+                Slider {
+                    text = "edge";
+                    min = 0.1;
+                    max = 10.0;
+                    value = (fun s -> s.edge_thickness);
+                    set_value = (fun s v -> { s with edge_thickness = v })
                 }
             |];
             displayed = true
         };
-        {
+                {
             name = "Search";
             items = [|
                 Button {
@@ -385,6 +414,25 @@ let setup () =
                                 (c1, c2, c3, c4) -> c4);
                     set_value = (fun s v -> match s.layout with
                         (c1, c2, c3, c4) -> { s with layout = (c1, c2, c3, v) })
+                }
+            |];
+            displayed = true
+        };
+        {
+            name = "Data";
+            items = [|
+                Dropdown {
+                    choices = [|
+                        ("Set graph", fun s -> s);
+                        ("Hcube 3", set_graph (Graph.hypercube 3));
+                        ("Hcube 4", set_graph (Graph.hypercube 4));
+                        ("Cycle 5", set_graph (Graph.cycle 5));
+                        ("Mobius 5", set_graph (Graph.mobius 5));
+                        ("Grid 3", set_graph (Graph.grid 3));
+                        ("Grid 7", set_graph (Graph.grid 7))
+                    |];
+                    active = false;
+                    selected = 0
                 }
             |];
             displayed = true
@@ -479,6 +527,7 @@ let rec loop s =
       begin_drawing ();
       clear_background Color.gray;
 
+  set_config_flags [ConfigFlags.Msaa_4x_hint];
       let input = get_input s.input in
       let s' = ref { s with input = input } in
 
@@ -550,6 +599,23 @@ let rec loop s =
                     in 
                     dec := !dec +. ctrl_height +. 5.;
                     s' := t.set_value (!s') v
+                | Dropdown t ->
+                    let v, b = Raygui.dropdown_box 
+                        (Rectangle.create
+                        (x +. 30.) !dec
+                        (ctrl_width -. 70.) (ctrl_height))
+                        (String.concat ";"
+                            (Array.to_list (Array.map fst t.choices)))
+                        t.selected t.active
+                    in 
+                    t.selected <- v;
+                    if b
+                    then begin
+                        t.active <- not t.active;
+                        t.selected <- 0;
+                        dec := !dec +. ctrl_height +. 5.;
+                        s' := (snd t.choices.(v)) (!s')
+                    end
                 | Textbox t ->
                         let text = t.text s in
                         let r = Rectangle.create 
