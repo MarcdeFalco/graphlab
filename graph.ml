@@ -79,11 +79,14 @@ let divisors n =
             i < j && (j+1) mod (i+1) == 0)
     }
 
+type status = Discovered | Unknown | Processed
+
 type search_step = {
-    visited : int list;
-    to_visit : int list;
     current : int;
-    pred : (int * int) list
+    parent : int option array;
+    entry_time : int option array;
+    exit_time : int option array;
+    status : status array
 }
 
 type search_trace = {
@@ -115,52 +118,88 @@ let queue_search = {
     to_list = fun s -> List.of_seq (Queue.to_seq s)
 }
 
-let search g src ss =
+let rec dfs_rec g status parent entry_time exit_time x time =
+    let n = Array.length g.vtx in
+    entry_time.(x) <- Some !time;
+    incr time;
+    status.(x) <- Discovered;
+
+    let step = {
+        status = Array.copy status;
+        current = x;
+        entry_time = Array.copy entry_time;
+        exit_time = Array.copy exit_time;
+        parent = Array.copy parent
+    } in
+    let steps = ref [step] in
+
+    for i = 0 to n-1 do
+        if g.mat.(x).(i) && status.(i) = Unknown
+        then begin
+            parent.(i) <- Some x;
+            steps := (dfs_rec g status parent entry_time exit_time i time) @ !steps
+        end
+    done;
+
+    exit_time.(x) <- Some !time;
+    status.(x) <- Processed;
+
+    let step = {
+        status = Array.copy status;
+        current = x;
+        entry_time = Array.copy entry_time;
+        exit_time = Array.copy exit_time;
+        parent = Array.copy parent
+    } in
+    step :: !steps
+
+let search_rec g src =
+    let n = Array.length g.vtx in
+    let status = Array.make n Unknown in
+    let parent = Array.make n None in
+    let entry_time = Array.make n None in
+    let exit_time = Array.make n None in
+
+    let steps = dfs_rec g status parent entry_time exit_time src (ref 0) in
+    {
+        steps = List.rev steps;
+        source = src
+    }
+
+
+let search_with_struct g src ss =
     let to_visit = ss.init () in
     let n = Array.length g.vtx in
-    let visited = Array.make n false in
-    let pred = Array.make n None in
+    let status = Array.make n Unknown in
+    let parent = Array.make n None in
 
-    let get_pred () = 
-        let l = ref [] in
-        for i = 0 to n-1 do
-            match pred.(i) with
-            | None -> ()
-            | Some j -> l := (j, i) :: !l
-        done;
-        !l
-    in
-
-    let get_visited () =
-        let l = ref [] in
-        for i = 0 to n-1 do
-            if visited.(i)
-            then l := i :: !l
-        done;
-        !l
-    in
+    let entry_time = Array.make n None in
+    let exit_time = Array.make n None in
 
     let steps = ref [] in
 
     ss.add src to_visit;
     while not (ss.is_empty to_visit) do
         let x = ss.take to_visit in
-        if not visited.(x)
+        if status.(x) <> Processed
         then begin
-            let step = {
-                visited = get_visited ();
-                to_visit = ss.to_list to_visit;
-                current = x;
-                pred = get_pred () } in
-            steps := step :: !steps;
-            visited.(x) <- true;
+            status.(x) <- Processed;
             for i = 0 to n-1 do
-                if g.mat.(x).(i) && pred.(i) = None && i <> src
+                if g.mat.(x).(i) && status.(i) = Unknown
                 then begin
-                    pred.(i) <- Some x;
+                    parent.(i) <- Some x;
+                    status.(i) <- Discovered;
                     ss.add i to_visit
                 end
-            done
+            done;
+            let step = {
+                status = Array.copy status;
+                current = x;
+                entry_time = Array.copy entry_time;
+                exit_time = Array.copy exit_time;
+                parent = Array.copy parent
+            } in
+            steps := step :: !steps
         end
     done;
     {
@@ -168,6 +207,13 @@ let search g src ss =
         source = src
     }
 
+type search_type = DFS | BFS | DFS_rec
+
+let search st g src =
+    match st with
+    | DFS -> search_with_struct g src stack_search
+    | DFS_rec -> search_rec g src 
+    | BFS -> search_with_struct g src queue_search
 
 let text_matrix g = 
     let s = ref "" in

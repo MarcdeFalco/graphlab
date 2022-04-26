@@ -20,7 +20,7 @@ type zone = {
     iterate : bool;
     vertex_radius : float;
     edge_thickness : float;
-    search_stack : bool;
+    search_type : Graph.search_type;
     search_trace : Graph.search_trace option;
     current_search_trace_steps : int;
     graph_radius : float;
@@ -79,7 +79,6 @@ let draw_graph s =
     let open Raylib in 
     let open Graph in
 
-
     let draw_edge i j thickness color show_arrows =
         let vi = let x, y = s.pos.(i) in Vector2.create x y in
         let vj = let x, y = s.pos.(j) in Vector2.create x y in
@@ -109,61 +108,45 @@ let draw_graph s =
     let n = Array.length s.pos in
     for i = 0 to n-1 do
     for j = 0 to n-1 do
-        if s.graph.mat.(i).(j) && (s.show_arrows || i < j || not s.graph.mat.(j).(i))
+        if s.graph.mat.(i).(j) 
         then begin
-            draw_edge i j s.edge_thickness (Color.create 0 0 0 255)
-            s.show_arrows
+            if s.show_arrows || i < j || not s.graph.mat.(j).(i)
+            then draw_edge i j s.edge_thickness (Color.create 0 0 0 255) s.show_arrows;
+
+            match s.search_trace with
+            | None -> ()
+            | Some st -> 
+                let step = List.nth st.steps s.current_search_trace_steps in
+                if step.parent.(j) = Some i
+                then draw_edge i j (1.5 *. s.edge_thickness)
+                        (Color.create 255 0 0 255) true
         end
     done
     done;
 
-    (match s.search_trace with
-    | None -> ()
-    | Some st -> begin
-            let step = List.nth st.steps s.current_search_trace_steps in
-            List.iter (fun (i,j) ->
-                draw_edge i j (1.5 *. s.edge_thickness)
-                    (Color.create 255 0 0 255) true) step.pred
-        end)
-    ;
-
     Array.iteri 
         (fun i v ->
             let x, y = s.pos.(i) in
-            draw_circle_v (Vector2.create x y) (s.edge_thickness +. s.vertex_radius)
-               (Color.create 0 0 0 255);
+            let color_out, color_fill = match s.search_trace with
+                        | None -> Color.black, Color.gray
+                        | Some st ->
+                            let step = List.nth st.steps s.current_search_trace_steps in
+                            let c_ext = if step.current = i then Color.green else Color.black in
+                            let c_fill = match step.status.(i) with
+                                | Unknown -> Color.gray
+                                | Discovered -> Color.create 128 0 0 255
+                                | Processed -> Color.create 0 128 0 255
+                            in c_ext, c_fill
+            in
+
+            draw_circle_v (Vector2.create x y) (s.edge_thickness +.
+                s.vertex_radius) color_out;
             draw_circle_v (Vector2.create x y) s.vertex_radius
-               (Color.create 128 128 128 255)            )
+              color_fill
+        )
         s.graph.vtx;
 
-    (match s.search_trace with
-    | None -> ()
-    | Some st -> begin
-            let x, y = s.pos.(st.source) in
-            draw_circle_v (Vector2.create x y) s.vertex_radius
-               (Color.create 255 0 0 255);
-
-            let step = List.nth st.steps s.current_search_trace_steps in
-
-            List.iter (fun i ->
-                let x, y = s.pos.(i) in
-                draw_circle_v 
-                   (Vector2.create x y) s.vertex_radius
-                   (Color.create 0 0 0 255)) step.visited;
-            
-            List.iter (fun i ->
-                let x, y = s.pos.(i) in
-                draw_circle_v 
-                   (Vector2.create x y) s.vertex_radius
-                   (Color.create 0 0 255 255)) step.to_visit;
-            
-            let x, y = s.pos.(step.current) in
-            draw_circle_v 
-               (Vector2.create x y) s.vertex_radius
-               (Color.create 0 255 0 255);
-
-    end);
-
+    
     Array.iteri 
         (fun i v ->
             let x, y = s.pos.(i) in
@@ -171,7 +154,29 @@ let draw_graph s =
             let lbl = s.graph.Graph.vtx.(i) in
             let tw = measure_text lbl fs in
             draw_text lbl (int_of_float x-tw/2) (int_of_float y-fs/2) 
-                fs (Color.white)) s.graph.Graph.vtx
+                fs (Color.white);
+
+            (match s.search_trace with
+            | None -> ()
+            | Some st -> 
+                let step = List.nth st.steps s.current_search_trace_steps in
+                (match step.entry_time.(i) with
+                | None -> ()
+                | Some t -> 
+            let st = string_of_int t in
+            let tw = measure_text st (fs/2) in
+            draw_text st (int_of_float (x -. s.vertex_radius *.
+            1.2) - tw) (int_of_float y)
+                (fs / 2) (Color.red));
+                (match step.exit_time.(i) with
+                | None -> ()
+                | Some t -> 
+            draw_text (string_of_int t) (int_of_float (x +. s.vertex_radius *.
+            1.2)) (int_of_float y)
+                (fs / 2) (Color.green)))
+
+
+        ) s.graph.Graph.vtx
 
 
 let input_graph s input zone =
@@ -200,11 +205,7 @@ let input_graph s input zone =
                 if input.right = Clicked
                 then begin
                     s := { !s with
-                       search_trace = Some (
-                            (if (!s).search_stack
-                            then Graph.search (!s).graph i Graph.stack_search
-                            else Graph.search (!s).graph i  Graph.queue_search)
-                       );
+                       search_trace = Some (Graph.search (!s).search_type (!s).graph i);
                        current_search_trace_steps = 0
                     };
                     prevent := true
@@ -333,9 +334,19 @@ let setup () =
                         { s with search_trace = None }
                 };
                 Button {
-                    text = (fun s -> if s.search_stack then "Stack (DFS)" else
-                        "Queue (BFS)");
-                    click = fun s -> { s with search_stack = not s.search_stack }
+                    text = (fun s -> "BFS" ^ (if s.search_type =
+                        Graph.BFS then " (*) " else ""));
+                    click = (fun s -> {s with search_type = Graph.BFS } )
+                };
+                Button {
+                    text = (fun s -> "DFS" ^ (if s.search_type =
+                        Graph.DFS then " (*) " else ""));
+                    click = (fun s -> {s with search_type = Graph.DFS} )
+                };
+                Button {
+                    text = (fun s -> "DFS Recursive" ^ (if s.search_type =
+                        Graph.DFS_rec then " (*) " else ""));
+                    click = (fun s -> {s with search_type = Graph.DFS_rec } )
                 };
                 Spinner {
                     text = "step";
@@ -443,7 +454,7 @@ let setup () =
     edge_thickness = 1.;
     vertex_radius = 10.;
     graph_radius = graph_radius;
-    search_stack = true;
+    search_type = Graph.DFS_rec;
     search_trace = None;
     current_search_trace_steps = 0;
     show_arrows = true
