@@ -79,14 +79,32 @@ let divisors n =
             i < j && (j+1) mod (i+1) == 0)
     }
 
+let exemple =
+    {
+        vtx = Array.init 6 (fun i -> Printf.sprintf "%c" (char_of_int
+        (int_of_char 'a' + i)));
+        mat = let m = Array.make_matrix 6 6 false in
+            m.(0).(1) <- true;
+            m.(0).(2) <- true;
+            m.(1).(3) <- true;
+            m.(1).(4) <- true;
+            m.(2).(1) <- true;
+            m.(2).(5) <- true;
+            m.(3).(4) <- true;
+            m.(5).(0) <- true;
+            m
+    }
+
 type status = Discovered | Unknown | Processed
+type edge_status = Tree | Back | Forward | Cross | NoStatus
 
 type search_step = {
     current : int;
     parent : int option array;
     entry_time : int option array;
     exit_time : int option array;
-    status : status array
+    status : status array;
+    edge_status : edge_status array array
 }
 
 type search_trace = {
@@ -118,7 +136,11 @@ let queue_search = {
     to_list = fun s -> List.of_seq (Queue.to_seq s)
 }
 
-let rec dfs_rec g status parent entry_time exit_time x time =
+let matrix_copy m =
+    let n = Array.length m in
+    Array.init n (fun i -> Array.copy m.(i))
+
+let rec dfs_rec dir g status edge_status parent entry_time exit_time x time =
     let n = Array.length g.vtx in
     entry_time.(x) <- Some !time;
     incr time;
@@ -129,19 +151,30 @@ let rec dfs_rec g status parent entry_time exit_time x time =
         current = x;
         entry_time = Array.copy entry_time;
         exit_time = Array.copy exit_time;
+        edge_status = matrix_copy edge_status;
         parent = Array.copy parent
     } in
     let steps = ref [step] in
 
     for i = 0 to n-1 do
-        if g.mat.(x).(i) && status.(i) = Unknown
+        if g.mat.(x).(i) && (dir || edge_status.(i).(x) = NoStatus)
         then begin
-            parent.(i) <- Some x;
-            steps := (dfs_rec g status parent entry_time exit_time i time) @ !steps
+            match status.(i) with
+            | Unknown -> begin
+                parent.(i) <- Some x;
+                edge_status.(x).(i) <- Tree;
+                steps := (dfs_rec dir g status edge_status parent entry_time exit_time i time) @ !steps
+            end
+            | Discovered -> edge_status.(x).(i) <- Back
+            | Processed when entry_time.(x) < entry_time.(i)
+                -> edge_status.(x).(i) <- Cross
+            | Processed 
+                -> edge_status.(x).(i) <- Forward
         end
     done;
 
     exit_time.(x) <- Some !time;
+    incr time;
     status.(x) <- Processed;
 
     let step = {
@@ -149,18 +182,34 @@ let rec dfs_rec g status parent entry_time exit_time x time =
         current = x;
         entry_time = Array.copy entry_time;
         exit_time = Array.copy exit_time;
+        edge_status = matrix_copy edge_status;
         parent = Array.copy parent
     } in
     step :: !steps
 
-let search_rec g src =
+let search_rec dir g src =
     let n = Array.length g.vtx in
     let status = Array.make n Unknown in
     let parent = Array.make n None in
     let entry_time = Array.make n None in
     let exit_time = Array.make n None in
+    let edge_status = Array.make_matrix n n NoStatus in
 
-    let steps = dfs_rec g status parent entry_time exit_time src (ref 0) in
+    let steps = dfs_rec dir g status edge_status 
+        parent entry_time exit_time src (ref 0) in
+
+    let unpack o = match o with
+        | None -> failwith "Argh"
+        | Some v -> v in
+    let expr = Array.make (2*n) "" in
+    for i = 0 to n-1 do
+        expr.( unpack entry_time.(i) ) <- g.vtx.(i);
+        expr.( unpack exit_time.(i) ) <- g.vtx.(i)
+    done;
+    Printf.printf "%s\n%!"
+        (String.concat ""
+            (Array.to_list expr));
+
     {
         steps = List.rev steps;
         source = src
@@ -172,6 +221,7 @@ let search_with_struct g src ss =
     let n = Array.length g.vtx in
     let status = Array.make n Unknown in
     let parent = Array.make n None in
+    let edge_status = Array.make_matrix n n NoStatus in
 
     let entry_time = Array.make n None in
     let exit_time = Array.make n None in
@@ -197,6 +247,7 @@ let search_with_struct g src ss =
                 current = x;
                 entry_time = Array.copy entry_time;
                 exit_time = Array.copy exit_time;
+                edge_status = matrix_copy edge_status;
                 parent = Array.copy parent
             } in
             steps := step :: !steps
@@ -209,10 +260,10 @@ let search_with_struct g src ss =
 
 type search_type = DFS | BFS | DFS_rec
 
-let search st g src =
+let search dir st g src =
     match st with
     | DFS -> search_with_struct g src stack_search
-    | DFS_rec -> search_rec g src 
+    | DFS_rec -> search_rec dir g src 
     | BFS -> search_with_struct g src queue_search
 
 let text_matrix g = 

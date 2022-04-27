@@ -1,4 +1,4 @@
-let w, h, ch = 1400., 880., 20.
+let w, h, ch = 1000., 800., 20.
 
 type button_state = Down | Up | Clicked
 
@@ -79,9 +79,8 @@ let draw_graph s =
     let open Raylib in 
     let open Graph in
 
-    let draw_edge i j thickness color show_arrows =
-        let vi = let x, y = s.pos.(i) in Vector2.create x y in
-        let vj = let x, y = s.pos.(j) in Vector2.create x y in
+
+    let draw_arrow vi vj thickness color show_arrows =
         draw_line_ex vi vj thickness color;
         if show_arrows
         then begin
@@ -104,6 +103,23 @@ let draw_graph s =
         end
     in
 
+    let draw_edge i j thickness color directed show_arrows =
+        let vi = let x, y = s.pos.(i) in Vector2.create x y in
+        let vj = let x, y = s.pos.(j) in Vector2.create x y in
+        let vij = Vector2.subtract vj vi in
+        let l = Vector2.length vij in
+        let dij = Vector2.normalize vij in
+        let perp = Vector2.rotate dij (3.14 /. 2.) in
+        let vm = Vector2.add vi
+            (Vector2.add (Vector2.scale dij (l /. 2.))
+                (Vector2.scale perp (s.vertex_radius))) in
+        if directed
+        then begin
+            draw_arrow vi vm thickness color false;
+            draw_arrow vm vj thickness color show_arrows
+        end else
+            draw_arrow vi vj thickness color show_arrows
+    in
 
     let n = Array.length s.pos in
     for i = 0 to n-1 do
@@ -111,15 +127,21 @@ let draw_graph s =
         if s.graph.mat.(i).(j) 
         then begin
             if s.show_arrows || i < j || not s.graph.mat.(j).(i)
-            then draw_edge i j s.edge_thickness (Color.create 0 0 0 255) s.show_arrows;
+            then draw_edge i j s.edge_thickness (Color.create 0 0 0 255) 
+                s.show_arrows s.show_arrows;
 
             match s.search_trace with
             | None -> ()
             | Some st -> 
                 let step = List.nth st.steps s.current_search_trace_steps in
-                if step.parent.(j) = Some i
-                then draw_edge i j (1.5 *. s.edge_thickness)
-                        (Color.create 255 0 0 255) true
+                if step.edge_status.(i).(j) <> Graph.NoStatus
+                then let col = match step.edge_status.(i).(j) with
+                        | Tree -> Color.orange
+                        | Back -> Color.green
+                        | Forward -> Color.blue
+                        | _ -> Color.create 179 149 0 255 in
+                    draw_edge i j s.edge_thickness
+                                col s.show_arrows true
         end
     done
     done;
@@ -205,7 +227,7 @@ let input_graph s input zone =
                 if input.right = Clicked
                 then begin
                     s := { !s with
-                       search_trace = Some (Graph.search (!s).search_type (!s).graph i);
+                       search_trace = Some (Graph.search (!s).show_arrows (!s).search_type (!s).graph i);
                        current_search_trace_steps = 0
                     };
                     prevent := true
@@ -252,7 +274,7 @@ let setup () =
   init_window iw ih "Graphlab";
   set_target_fps 60;
   set_config_flags [ConfigFlags.Msaa_4x_hint];
-  let g = Graph.grid 5 in
+  let g = Graph.complet 5 in
   let n = Graph.nvertices g in
   let p = Graph.nedges g in
   let graph_radius = float_of_int (Array.length g.Graph.vtx) *. 50. in
@@ -440,7 +462,8 @@ let setup () =
                         ("Cycle 5", set_graph (Graph.cycle 5));
                         ("Mobius 5", set_graph (Graph.mobius 5));
                         ("Grid 3", set_graph (Graph.grid 3));
-                        ("Grid 7", set_graph (Graph.grid 7))
+                        ("Grid 7", set_graph (Graph.grid 7));
+                        ("Exemple", set_graph (Graph.exemple));
                     |];
                     active = false;
                     selected = 0
@@ -457,7 +480,7 @@ let setup () =
     search_type = Graph.DFS_rec;
     search_trace = None;
     current_search_trace_steps = 0;
-    show_arrows = true
+    show_arrows = false
   } in
   for i = 0 to Array.length s.zones - 1 do
       fit_zone_to_graph s s.zones.(i)
