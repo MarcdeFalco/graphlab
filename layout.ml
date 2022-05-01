@@ -40,9 +40,9 @@ let iterate g pos config radius =
             let dy = y' -. y in
             let thres = 1e-2 in
             let d = sqrt(dx *. dx +. dy *. dy ) in
-            if i <> j && d > thres then begin
+            if d > thres then begin
                 (* EADES  *)
-                if g.Graph.mat.(i).(j)  || g.Graph.mat.(j).(i)
+                if Graph.connected g i j || Graph.connected g j i
                 then begin
                     fx := !fx +. c1 *. log (d /. c2) *. dx /. d;
                     fy := !fy +. c1 *. log (d /. c2) *. dy /. d
@@ -67,16 +67,19 @@ let iterate g pos config radius =
 let optimal_parameters g =
     let n = Graph.nvertices g in
     let p = Graph.nedges g in
+    let d = Graph.diameter g in
     let d_avg = Graph.average_degree g in
-    (2., 0.5 *. log (float_of_int n), 1., 0.25 /. d_avg)
+    (2., 2., 1., 0.2)
 
 let eades g graph_radius =
     let n = Graph.nvertices g in
     let p = Graph.nedges g in
-    let layout = optimal_parameters g in
-    let rec aux i =
-        if i = 0
-        then init g graph_radius
-        else iterate g (aux (i-1)) layout graph_radius
-    in aux 200
+    let layout = ref (optimal_parameters g) in
+    let pos = ref (init g graph_radius) in
+    for _ = 0 to 1000 do
+        pos := iterate g !pos !layout graph_radius;
+        let a, b, c, d = !layout in
+        layout := (a,b,c,0.999 *. d)
+    done;
+    !pos
 

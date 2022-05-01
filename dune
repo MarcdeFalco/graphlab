@@ -1,6 +1,21 @@
+(library
+   (name graph)
+   (modules graph))
+
 (executable
    (name graphlab)
+   (modules graphlab layout)
+   (libraries graph raylib raygui))
+
+(executable
+   (name flood)
+   (modules flood)
    (libraries raylib raygui))
+
+(executable
+   (name graph_test)
+   (modules graph_test)
+   (libraries graph))
 
 (env
   (dev

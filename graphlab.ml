@@ -1,6 +1,24 @@
-let w, h, ch = 1000., 800., 20.
+
+
+let rgui_w = 0.3
+let w, h =
+    Raylib.init_window 10 10 "Initializing";
+    let monitor = Raylib.get_current_monitor () in
+    let w = float_of_int (Raylib.get_monitor_width monitor) in
+    let h = float_of_int (Raylib.get_monitor_height monitor) in
+    Raylib.close_window ();
+    w, h
+
 
 type button_state = Down | Up | Clicked
+
+let margin_rect r hmargin vmargin =
+    let open Raylib in
+    Rectangle.create
+        (Rectangle.x r -. hmargin)
+        (Rectangle.y r -. vmargin)
+        (Rectangle.width r +. 2. *. hmargin)
+        (Rectangle.height r +. 2. *. vmargin)
 
 type zone = {
     camera : Raylib.Camera2D.t;
@@ -10,7 +28,7 @@ type zone = {
     mutable panning : bool
 } and state = {
     zones : zone array;
-    graph : string Graph.t;
+    graph : (string, int) Graph.t;
     (* TODO move to Vector2 *)
     pos : (float * float) array; 
     dragged_vertex : (int * zone) option;
@@ -24,7 +42,7 @@ type zone = {
     search_trace : Graph.search_trace option;
     current_search_trace_steps : int;
     graph_radius : float;
-    show_arrows : bool
+    directed : bool
 } and input = {
     wheel : float;
     mouse : Raylib.Vector2.t;
@@ -124,11 +142,11 @@ let draw_graph s =
     let n = Array.length s.pos in
     for i = 0 to n-1 do
     for j = 0 to n-1 do
-        if s.graph.mat.(i).(j) 
+        if Graph.connected s.graph i j 
         then begin
-            if s.show_arrows || i < j || not s.graph.mat.(j).(i)
+            if s.directed || i < j || not (Graph.connected s.graph j i)
             then draw_edge i j s.edge_thickness (Color.create 0 0 0 255) 
-                s.show_arrows s.show_arrows;
+                s.directed s.directed;
 
             match s.search_trace with
             | None -> ()
@@ -136,12 +154,12 @@ let draw_graph s =
                 let step = List.nth st.steps s.current_search_trace_steps in
                 if step.edge_status.(i).(j) <> Graph.NoStatus
                 then let col = match step.edge_status.(i).(j) with
-                        | Tree -> Color.orange
-                        | Back -> Color.green
+                        | Tree -> Color.green
+                        | Back -> Color.red
                         | Forward -> Color.blue
-                        | _ -> Color.create 179 149 0 255 in
+                        | _ -> Color.create 128 128 128 255 in
                     draw_edge i j s.edge_thickness
-                                col s.show_arrows true
+                                col s.directed true
         end
     done
     done;
@@ -187,8 +205,7 @@ let draw_graph s =
                 | Some t -> 
             let st = string_of_int t in
             let tw = measure_text st (fs/2) in
-            draw_text st (int_of_float (x -. s.vertex_radius *.
-            1.2) - tw) (int_of_float y)
+            draw_text st (int_of_float (x -. s.vertex_radius *. 1.2) - tw) (int_of_float y)
                 (fs / 2) (Color.red));
                 (match step.exit_time.(i) with
                 | None -> ()
@@ -227,7 +244,7 @@ let input_graph s input zone =
                 if input.right = Clicked
                 then begin
                     s := { !s with
-                       search_trace = Some (Graph.search (!s).show_arrows (!s).search_type (!s).graph i);
+                       search_trace = Some (Graph.search (!s).directed (!s).search_type (!s).graph i);
                        current_search_trace_steps = 0
                     };
                     prevent := true
@@ -256,8 +273,8 @@ let fit_zone_to_graph s zone =
   let x, y, w, h = Rectangle.x r, Rectangle.y r,
     Rectangle.width r, Rectangle.height r in
   let zoom = min
-    ( 0.8 *. h /. (y2 -. y1) )
-    ( 0.8 *. w /. (x2 -. x1) ) in
+    ( 0.7 *. h /. (y2 -. y1) )
+    ( 0.7 *. w /. (x2 -. x1) ) in
   Camera2D.set_zoom cam zoom;
   Camera2D.set_offset cam 
     (Vector2.create (x +. w *. 0.5) (y +. h *. 0.5));
@@ -271,23 +288,31 @@ let setup () =
   let iw = int_of_float w in
   let ih = int_of_float h in
   let open Raylib in
-  init_window iw ih "Graphlab";
-  set_target_fps 60;
   set_config_flags [ConfigFlags.Msaa_4x_hint];
+  init_window iw ih "Graphlab";
+  toggle_fullscreen ();
+  set_target_fps 60;
   let g = Graph.complet 5 in
   let n = Graph.nvertices g in
   let p = Graph.nedges g in
-  let graph_radius = float_of_int (Array.length g.Graph.vtx) *. 50. in
+  let graph_radius = float_of_int (Graph.diameter g) *. 50. in
   let pos = Layout.eades g graph_radius in
+
   let set_graph g s =
-    let graph_radius = float_of_int (Array.length g.Graph.vtx) *. 50. in
+    let graph_radius = float_of_int (Graph.diameter g) *. 20. *. s.vertex_radius in
     let pos = Layout.eades g graph_radius in
-    let s = { s with graph = g; pos = pos } in
+    let s = { s with graph = g; 
+        pos = pos; 
+        graph_radius = graph_radius;
+        layout = Layout.optimal_parameters g;
+        directed = g.Graph.directed } in
     for i = 0 to Array.length s.zones - 1 do
         fit_zone_to_graph s s.zones.(i)
     done;
     s
   in
+
+  let ratio = w /. h in
 
   let s = {
     zones = [|
@@ -295,7 +320,9 @@ let setup () =
             camera = Camera2D.create 
                 (Vector2.create 0. 0.)
                 (Vector2.create 0. 0.) 0. 1.;
-            rect = scalable_rect 0.3 0.01 0.69 0.98;
+            rect = margin_rect 
+                (scalable_rect 0.3 0.0 (1. -. rgui_w) 0.99)
+                (-5.) (-5.);
             draw = draw_graph;
             process_input = input_graph;
             panning = false
@@ -304,7 +331,10 @@ let setup () =
             camera = Camera2D.create 
                 (Vector2.create 0. 0.)
                 (Vector2.create 0. 0.) 0. 0.05;
-            rect = scalable_rect 0.9 0.9 0.095 0.095;
+            rect = 
+                (let z_w = 0.05 in
+                let z_h = ratio *. z_w in
+                scalable_rect (1. -. z_w) (1.-. z_h) z_w z_h);
             draw = draw_graph;
             process_input = input_graph;
             panning = false
@@ -326,21 +356,21 @@ let setup () =
             name = "Style";
             items = [|
                 Toggle {
-                    text = "Show arrows";
-                    value = (fun s -> s.show_arrows);
-                    set_value = fun s b -> { s with show_arrows = b }
+                    text = "Directed";
+                    value = (fun s -> s.directed);
+                    set_value = fun s b -> { s with directed = b }
                 };
                 Slider {
                     text = "vtx";
-                    min = 1.;
-                    max = 100.0;
+                    min = 10.;
+                    max = 500.0;
                     value = (fun s -> s.vertex_radius);
                     set_value = (fun s v -> { s with vertex_radius = v })
                 };
                 Slider {
                     text = "edge";
                     min = 0.1;
-                    max = 10.0;
+                    max = 50.0;
                     value = (fun s -> s.edge_thickness);
                     set_value = (fun s v -> { s with edge_thickness = v })
                 }
@@ -442,7 +472,7 @@ let setup () =
                 Slider {
                     text = "c4";
                     min = 0.0;
-                    max = 0.2;
+                    max = 0.5;
                     value = (fun s -> match s.layout with
                                 (c1, c2, c3, c4) -> c4);
                     set_value = (fun s v -> match s.layout with
@@ -464,6 +494,8 @@ let setup () =
                         ("Grid 3", set_graph (Graph.grid 3));
                         ("Grid 7", set_graph (Graph.grid 7));
                         ("Exemple", set_graph (Graph.exemple));
+                        ("Divisors 11", set_graph (Graph.divisors 11));
+                        ("Divisors 99", set_graph (Graph.divisors 99));
                     |];
                     active = false;
                     selected = 0
@@ -473,19 +505,16 @@ let setup () =
         }
     |];
     layout = Layout.optimal_parameters g;
-    iterate = true;
+    iterate = false;
     edge_thickness = 1.;
     vertex_radius = 10.;
     graph_radius = graph_radius;
     search_type = Graph.DFS_rec;
     search_trace = None;
     current_search_trace_steps = 0;
-    show_arrows = false
+    directed = false
   } in
-  for i = 0 to Array.length s.zones - 1 do
-      fit_zone_to_graph s s.zones.(i)
-  done;
-  s
+  set_graph (Graph.complet 5) s
 
 let process_zone s input zone =
     let open Raylib in
@@ -508,16 +537,8 @@ let process_zone s input zone =
         if input.wheel <> 0.
         then (
             let m = (1. +. input.wheel *. 0.1) in
-            (*
             let pos = get_screen_to_world_2d input.mouse zone.camera in
-*)
             Camera2D.set_zoom zone.camera (m *. (Camera2D.zoom zone.camera))
-            (*
-            let pos' = get_screen_to_world_2d input.mouse zone.camera in
-            let delta = Vector2.subtract pos' pos in
-            Camera2D.set_offset zone.camera
-                (Vector2.add delta (Camera2D.offset zone.camera))
-        *)
         );
         if not (dragging s) && input.left = Down
         then zone.panning <- true
@@ -561,11 +582,10 @@ let rec loop s =
       begin_drawing ();
       clear_background Color.gray;
 
-  set_config_flags [ConfigFlags.Msaa_4x_hint];
       let input = get_input s.input in
       let s' = ref { s with input = input } in
 
-    let rgui = scalable_rect 0.01 0.01 0.275 0.98 in
+    let rgui = scalable_rect 0.0 0.0 rgui_w 1. in
     Raygui.panel rgui;
     
     let x = 5. +. Rectangle.x rgui in
@@ -665,19 +685,11 @@ let rec loop s =
       (* Last zone (on top) is fit to size *)
       fit_zone_to_graph s s.zones.(Array.length s.zones - 1);
 
-      let extend r =
-          let b = 5. in
-          Rectangle.create
-            (Rectangle.x r -. b)
-            (Rectangle.y r -. b)
-            (Rectangle.width r +. 2. *. b)
-            (Rectangle.height r +. 2. *. b)
-     in
-      
+            
       for i = 0 to Array.length s.zones - 1 do
           let zone = s.zones.(i) in
           draw_rectangle_gradient_ex 
-            (extend zone.rect)
+            (margin_rect zone.rect 1. 1.)
             Color.white Color.darkblue Color.black Color.blue;
           s' := process_zone !s' input zone
       done;
