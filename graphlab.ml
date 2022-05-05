@@ -4,8 +4,8 @@ let rgui_w = 0.3
 let w, h =
     Raylib.init_window 10 10 "Initializing";
     let monitor = Raylib.get_current_monitor () in
-    let w = float_of_int (Raylib.get_monitor_width monitor) in
-    let h = float_of_int (Raylib.get_monitor_height monitor) in
+    let w = float_of_int (Raylib.get_monitor_width monitor) *. 0.75 in
+    let h = float_of_int (Raylib.get_monitor_height monitor) *. 0.8 in
     Raylib.close_window ();
     w, h
 
@@ -290,7 +290,7 @@ let setup () =
   let open Raylib in
   set_config_flags [ConfigFlags.Msaa_4x_hint];
   init_window iw ih "Graphlab";
-  toggle_fullscreen ();
+  (* toggle_fullscreen (); *)
   set_target_fps 60;
   let g = Graph.complet 5 in
   let n = Graph.nvertices g in
