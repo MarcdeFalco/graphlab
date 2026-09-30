@@ -1,0 +1,13 @@
+(executable
+ (name graphlab_web)
+ (modes js)
+ (libraries graph js_of_ocaml)
+ (preprocess
+  (pps js_of_ocaml-ppx)))
+
+(rule
+ (alias web)
+ (targets graphlab.js)
+ (deps graphlab_web.bc.js index.html)
+ (action
+  (copy graphlab_web.bc.js graphlab.js)))
