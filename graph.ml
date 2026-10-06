@@ -63,12 +63,12 @@ let mobius n =
     let vtx = Array.init n (fun i -> string_of_int i) in
     create vtx false (edges_list_from_incidence false n
         (fun (i, j) ->
-            (i+1) mod n = j || (i+n/2) mod n = j))
+            (i+1) mod n = j || (j+1) mod n = i || (i+n/2) mod n = j || (j+n/2) mod n = i))
 
 let cycle n =
     let vtx = Array.init n (fun i -> string_of_int i) in
     create vtx false (edges_list_from_incidence false n
-        (fun (i, j) -> (i+1) mod n = j))
+        (fun (i, j) -> (i+1) mod n = j || (j+1) mod n = i))
 
 let complet n =
     let vtx = Array.init n (fun i -> string_of_int i) in
@@ -97,6 +97,74 @@ let exemple =
     create vtx true [ (0,1,1); (0,2,1); (1,3,1); 
             (1,4,1); (2,1,1); (2,5,1);
             (3,4,1); (5,0,1) ]
+
+let numbered n = Array.init n string_of_int
+
+let path n =
+    create (numbered n) false (List.init (max 0 (n-1)) (fun i -> (i, i+1, 1)))
+
+let star n =
+    create (numbered (n+1)) false (List.init n (fun i -> (0, i+1, 1)))
+
+let wheel n =
+    create (numbered (n+1)) false
+        (List.init n (fun i -> (0, i+1, 1))
+        @ List.init n (fun i -> (i+1, (i+1) mod n + 1, 1)))
+
+let petersen =
+    create (numbered 10) false
+        (List.init 5 (fun i -> (i, (i+1) mod 5, 1))
+        @ List.init 5 (fun i -> (i, i+5, 1))
+        @ List.init 5 (fun i -> (i+5, (i+2) mod 5 + 5, 1)))
+
+let complete_bipartite n m =
+    let vtx = Array.init (n+m) (fun i ->
+        if i < n then Printf.sprintf "a%d" i else Printf.sprintf "b%d" (i-n)) in
+    create vtx false
+        (List.concat (List.init n (fun i -> List.init m (fun j -> (i, n+j, 1)))))
+
+let random_tree n =
+    create (numbered n) false
+        (List.init (max 0 (n-1)) (fun i -> (Random.int (i+1), i+1, 1)))
+
+let random_graph n p directed =
+    let edges = ref [] in
+    for i = 0 to n-1 do
+        for j = 0 to n-1 do
+            if i <> j && (directed || i < j) && Random.float 1. < p
+            then edges := (i, j, 1) :: !edges
+        done
+    done;
+    create (numbered n) directed (List.rev !edges)
+
+(* graphe orienté sans cycle : les arcs vont toujours d'un petit numéro
+   vers un plus grand *)
+let random_dag n p =
+    let edges = ref [] in
+    for i = 0 to n-1 do
+        for j = i+1 to n-1 do
+            if Random.float 1. < p then edges := (i, j, 1) :: !edges
+        done
+    done;
+    create (numbered n) true (List.rev !edges)
+
+let with_random_weights g wmax =
+    let g' = { g with edges = Array.make (nvertices g) [] } in
+    Array.iteri (fun i l ->
+        List.iter (fun (j, _) ->
+            if g.directed || i <= j then add_edge g' i j (1 + Random.int wmax)) l)
+        g.edges;
+    g'
+
+let exemple_pondere =
+    let vtx = [| "s"; "a"; "b"; "c"; "d"; "t" |] in
+    create vtx false [ (0,1,7); (0,2,9); (0,5,14); (1,2,10); (1,3,15);
+        (2,3,11); (2,5,2); (3,4,6); (4,5,9) ]
+
+let exemple_negatif =
+    let vtx = [| "s"; "a"; "b"; "c"; "d" |] in
+    create vtx true [ (0,1,6); (0,3,7); (1,2,5); (1,3,8); (1,4,-4);
+        (2,1,-2); (3,2,-3); (3,4,9); (4,0,2); (4,2,7) ]
 
 type status = Discovered | Unknown | Processed
 type edge_status = Tree | Back | Forward | Cross | NoStatus

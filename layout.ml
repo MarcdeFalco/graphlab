@@ -31,24 +31,32 @@ let iterate g pos config radius =
         ( radius *. (x /. eades_r), radius *. (y /. eades_r) )
     in
     let n = Graph.nvertices g in
+    (* voisinage et positions calculés une fois par itération *)
+    let adj = Array.make_matrix n n false in
+    Array.iteri (fun i l ->
+        List.iter (fun (j, _) -> adj.(i).(j) <- true; adj.(j).(i) <- true) l)
+        g.Graph.edges;
+    let cpos = Array.map calibrate pos in
     Array.init n (fun i ->
-        let x, y = calibrate pos.(i) in
+        let x, y = cpos.(i) in
         let fx, fy = ref 0., ref 0. in
         for j = 0 to n-1 do
-            let x', y' = calibrate pos.(j) in
+            let x', y' = cpos.(j) in
             let dx = x' -. x in
             let dy = y' -. y in
             let thres = 1e-2 in
             let d = sqrt(dx *. dx +. dy *. dy ) in
             if d > thres then begin
                 (* EADES  *)
-                if Graph.connected g i j || Graph.connected g j i
+                if adj.(i).(j)
                 then begin
-                    fx := !fx +. c1 *. log (d /. c2) *. dx /. d;
-                    fy := !fy +. c1 *. log (d /. c2) *. dy /. d
+                    let f = c1 *. log (d /. c2) /. d in
+                    fx := !fx +. f *. dx;
+                    fy := !fy +. f *. dy
                 end;
-                fx := !fx -. c3 *. dx /. (d ** 3.0);
-                fy := !fy -. c3 *. dy /. (d ** 3.0)
+                let d3 = d *. d *. d in
+                fx := !fx -. c3 *. dx /. d3;
+                fy := !fy -. c3 *. dy /. d3
                 (* Frucheterman & Reingold *)
                 (*
                 if g.Graph.mat.(i).(j)  || g.Graph.mat.(j).(i)
