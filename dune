@@ -1,7 +1,7 @@
 (library
    (name graph)
    (wrapped false)
-   (modules graph layout))
+   (modules graph layout algos))
 
 (executable
    (name graphlab)

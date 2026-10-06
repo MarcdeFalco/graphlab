@@ -4,689 +4,286 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graphlab</title>
-<style>
-  :root {
-    --bg: #f7f7f5;
-    --panel: #ffffff;
-    --text: #1d1d1f;
-    --muted: #6b6b70;
-    --border: #dcdcd8;
-    --accent: #2f5fd0;
-    --accent-soft: #e6edfb;
-    --canvas: #fdfdfb;
-    --edge: #2a2a2e;
-    --vertex: #8a8a90;
-    --vertex-text: #ffffff;
-    --discovered: #a32020;
-    --processed: #1d7a3a;
-    --current: #22c55e;
-    --tree: #16a34a;
-    --back: #dc2626;
-    --forward: #2563eb;
-    --cross: #9ca3af;
-    --entry: #dc2626;
-    --exit: #16a34a;
-    --mono: "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #17181b;
-      --panel: #202226;
-      --text: #e8e8ea;
-      --muted: #9a9aa2;
-      --border: #34363c;
-      --accent: #7aa2ff;
-      --accent-soft: #263253;
-      --canvas: #1b1c20;
-      --edge: #d4d4d8;
-      --vertex: #5b5b63;
-      --discovered: #c0392b;
-      --processed: #239a4b;
-      --tree: #34d399;
-      --back: #f87171;
-      --forward: #60a5fa;
-      --cross: #6b7280;
-      --entry: #f87171;
-      --exit: #4ade80;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  header {
-    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
-    padding: .75rem 1rem; border-bottom: 1px solid var(--border); background: var(--panel);
-  }
-  header h1 { font-size: 1.15rem; margin: 0; }
-  header .sub { color: var(--muted); font-size: .9rem; }
-  header .spacer { flex: 1; }
-  header a { color: var(--accent); text-decoration: none; font-size: .9rem; }
-  header a:hover { text-decoration: underline; }
-
-  main {
-    display: grid; grid-template-columns: 340px minmax(0, 1fr);
-    gap: 1rem; padding: 1rem; max-width: 1600px; margin: 0 auto;
-  }
-  @media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } #view { order: -1; } }
-
-  section, details {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-    padding: .75rem 1rem; min-width: 0;
-  }
-  .controls { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
-  summary, section h2 {
-    font-size: .8rem; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); margin: 0; font-weight: 700; cursor: pointer;
-  }
-  section h2 { cursor: default; margin-bottom: .5rem; }
-  details[open] summary { margin-bottom: .6rem; }
-
-  label { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
-  .row { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .35rem 0; }
-  .slider { display: grid; grid-template-columns: 5.5rem 1fr 3.2rem; gap: .5rem; align-items: center; font-size: .88rem; margin: .3rem 0; }
-  .slider output { font-family: var(--mono); font-size: .8rem; text-align: right; color: var(--muted); }
-  input[type=range] { width: 100%; accent-color: var(--accent); }
-  button, select {
-    font: inherit; font-size: .9rem; border: 1px solid var(--border); border-radius: 6px;
-    background: var(--panel); color: var(--text); padding: .35rem .65rem; cursor: pointer;
-  }
-  button:hover:not(:disabled) { border-color: var(--accent); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.on, button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  select { width: 100%; }
-  textarea {
-    width: 100%; min-height: 7rem; font: .85rem var(--mono);
-    border: 1px solid var(--border); border-radius: 6px; padding: .45rem;
-    background: var(--panel); color: var(--text); resize: vertical;
-  }
-  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--border); }
-  .seg button:last-child { border-right: 0; }
-  .hint { color: var(--muted); font-size: .8rem; margin: .4rem 0 0; }
-  .err { color: var(--back); font-size: .85rem; }
-  pre.repr {
-    font: .8rem var(--mono); background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; padding: .5rem; max-height: 14rem; overflow: auto; margin: .3rem 0 .6rem;
-  }
-  .stats { font-size: .88rem; color: var(--muted); }
-  .stats b { color: var(--text); font-weight: 600; }
-
-  #view { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
-  #canvas-wrap {
-    position: relative; background: var(--canvas); border: 1px solid var(--border);
-    border-radius: 8px; overflow: hidden; height: calc(100vh - 11rem); min-height: 380px;
-  }
-  @media (max-width: 900px) { #canvas-wrap { height: 60vh; } }
-  canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
-  canvas.dragging { cursor: grabbing; }
-  .overlay {
-    position: absolute; left: .6rem; top: .6rem; right: .6rem;
-    display: flex; gap: .4rem; flex-wrap: wrap; pointer-events: none;
-  }
-  .overlay > * { pointer-events: auto; }
-  .stepbar {
-    display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: .5rem .75rem;
-  }
-  .stepbar input[type=range] { flex: 1; min-width: 120px; }
-  .stepbar .info { font-size: .88rem; color: var(--muted); min-width: 10rem; }
-  .legend { display: flex; flex-wrap: wrap; gap: .3rem 1rem; font-size: .8rem; color: var(--muted); }
-  .legend span { display: inline-flex; align-items: center; gap: .35rem; }
-  .sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
-  .ln { width: 18px; height: 3px; display: inline-block; border-radius: 2px; }
-
-  /* Documentation */
-  #doc { margin: 0 max(1rem, calc((100% - 1568px) / 2)) 2rem; padding: 1rem 1.5rem; }
-  #doc h2 { font-size: 1rem; text-transform: none; letter-spacing: 0; color: var(--text); }
-  #doc h3 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
-  #doc p, #doc li { max-width: 78ch; }
-  #doc code { font-family: var(--mono); font-size: .9em; }
-  #doc table { border-collapse: collapse; }
-  #doc td, #doc th { text-align: left; padding: .3rem .7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-  #doc th { color: var(--muted); font-size: .85rem; }
-  kbd {
-    font: .75rem var(--mono); border: 1px solid var(--border);
-    border-bottom-width: 2px; border-radius: 3px; padding: 0 .25rem;
-  }
-</style>
+<link rel="stylesheet" href="app.css">
 </head>
 <body>
 <header>
   <h1>Graphlab</h1>
-  <span class="sub">Visualiser des graphes et leurs parcours</span>
+  <span class="sub">Graphes et algorithmes pas à pas</span>
+  <nav>
+    <button id="tab-graph" class="on">Graphes</button>
+    <button id="tab-flood">Remplissage</button>
+  </nav>
   <span class="spacer"></span>
   <a href="#doc">Documentation</a>
 </header>
 
-<main>
-  <div class="controls">
+<!-- ================================================================ -->
+<main id="page-graph">
+  <div class="col" id="left">
     <section>
-      <h2>Graphe</h2>
-      <select id="examples" aria-label="Graphe"></select>
+      <h2>Nouveau graphe</h2>
+      <select id="gen" aria-label="Famille de graphes"></select>
+      <div class="params" id="gen-params"></div>
+      <div class="row">
+        <button id="gen-go" class="primary">Créer</button>
+        <button id="clear">Graphe vide</button>
+      </div>
       <p class="stats" id="stats"></p>
-      <details id="custom-box" style="padding:0;border:0">
-        <summary style="text-transform:none;letter-spacing:0;font-size:.88rem;color:var(--accent);font-weight:500">Saisir un graphe…</summary>
-        <textarea id="custom" spellcheck="false">a b
-a c
-b d
-c d
-d e</textarea>
-        <div class="row">
-          <label><input type="checkbox" id="custom-directed"> Orienté</label>
-          <span style="flex:1"></span>
-          <button id="custom-load" class="primary">Charger</button>
-        </div>
-        <div class="err" id="custom-err"></div>
-        <p class="hint">Une arête par ligne : <code>a b</code> (poids optionnel : <code>a b 3</code>). Un nom seul sur une ligne crée un sommet isolé.</p>
-      </details>
     </section>
 
     <section>
-      <h2>Parcours</h2>
+      <h2>Importer / exporter</h2>
       <div class="row">
-        <div class="seg" id="search-type">
-          <button data-kind="dfsrec" class="on">DFS récursif</button>
-          <button data-kind="dfs">DFS (pile)</button>
-          <button data-kind="bfs">BFS (file)</button>
-        </div>
+        <button id="open-text">Texte…</button>
+        <button id="open-ocaml">Code OCaml…</button>
+        <button id="open-tikz">TikZ…</button>
       </div>
       <div class="row">
-        <label style="flex:1">Source <select id="source" style="flex:1"></select></label>
-        <button id="search-go" class="primary">Lancer</button>
-        <button id="search-reset">Effacer</button>
+        <button id="share">Lien de partage</button>
+        <button id="png">Image PNG</button>
       </div>
-      <p class="hint">Raccourci : clic droit ou double-clic sur un sommet.</p>
+      <div class="row">
+        <button id="save-json">Enregistrer (.json)</button>
+        <label style="gap:0"><button id="open-json-btn">Ouvrir…</button><input type="file" id="open-json" accept=".json,application/json" hidden></label>
+      </div>
+      <p class="hint" id="share-msg">Le graphe est aussi sauvegardé automatiquement dans ce navigateur.</p>
     </section>
 
-    <details open>
+    <details class="box" open>
       <summary>Disposition</summary>
       <div class="row">
         <button id="animate">Animer</button>
-        <button id="randomize">Mélanger</button>
-        <button id="fit">Recentrer</button>
+        <button id="relayout">Forces</button>
+        <button id="circle">Cercle</button>
+        <button id="shuffle">Mélanger</button>
       </div>
-      <div class="slider"><span>Attraction</span><input type="range" id="c1" min="1" max="10" step="0.1" value="2"><output></output></div>
-      <div class="slider"><span>Longueur</span><input type="range" id="c2" min="1" max="10" step="0.1" value="2"><output></output></div>
-      <div class="slider"><span>Répulsion</span><input type="range" id="c3" min="1" max="10" step="0.1" value="1"><output></output></div>
-      <div class="slider"><span>Pas</span><input type="range" id="c4" min="0" max="0.5" step="0.005" value="0.2"><output></output></div>
+      <details>
+        <summary style="text-transform:none;letter-spacing:0;font-weight:500;color:var(--accent)">Réglages des forces</summary>
+        <div class="slider"><span>Attraction</span><input type="range" id="c1" min="1" max="10" step="0.1" value="2"><output></output></div>
+        <div class="slider"><span>Longueur</span><input type="range" id="c2" min="1" max="10" step="0.1" value="2"><output></output></div>
+        <div class="slider"><span>Répulsion</span><input type="range" id="c3" min="1" max="10" step="0.1" value="1"><output></output></div>
+        <div class="slider"><span>Pas</span><input type="range" id="c4" min="0" max="0.5" step="0.005" value="0.2"><output></output></div>
+      </details>
     </details>
 
-    <details open>
-      <summary>Style</summary>
-      <label><input type="checkbox" id="directed"> Dessiner orienté (flèches)</label>
-      <div class="slider"><span>Sommets</span><input type="range" id="radius" min="4" max="40" step="1" value="14"><output></output></div>
-      <div class="slider"><span>Arêtes</span><input type="range" id="thickness" min="0.5" max="8" step="0.1" value="1.5"><output></output></div>
-      <label><input type="checkbox" id="labels" checked> Noms des sommets</label>
-    </details>
-
-    <details>
-      <summary>Représentations</summary>
-      <div class="hint" style="margin:0">Listes d'adjacence</div>
-      <pre class="repr" id="ladj"></pre>
-      <div class="hint" style="margin:0">Matrice d'adjacence</div>
-      <pre class="repr" id="matrix"></pre>
+    <details class="box" open>
+      <summary>Affichage</summary>
+      <div class="slider"><span>Sommets</span><input type="range" id="radius" min="6" max="40" step="1" value="16"><output></output></div>
+      <div class="slider"><span>Arêtes</span><input type="range" id="thickness" min="0.5" max="6" step="0.1" value="1.6"><output></output></div>
+      <label><input type="checkbox" id="show-labels" checked> Noms des sommets</label>
+      <label><input type="checkbox" id="show-notes" checked> Annotations de l'algorithme</label>
     </details>
   </div>
 
-  <div id="view">
+  <div id="center">
+    <div class="toolbar">
+      <div class="seg" id="modes" role="group" aria-label="Outil">
+        <button data-mode="move" class="on" title="Déplacer (D)">Déplacer</button>
+        <button data-mode="vertex" title="Ajouter des sommets (S)">+ Sommet</button>
+        <button data-mode="edge" title="Ajouter des arêtes (A)">+ Arête</button>
+        <button data-mode="delete" title="Supprimer (X)">Supprimer</button>
+      </div>
+      <span class="sep"></span>
+      <button id="undo" title="Annuler (Ctrl+Z)">↶</button>
+      <button id="redo" title="Rétablir (Ctrl+Y)">↷</button>
+      <span class="sep"></span>
+      <label><input type="checkbox" id="directed"> Orienté</label>
+      <label><input type="checkbox" id="weighted"> Pondéré</label>
+      <span class="grow"></span>
+      <button id="fit" title="Recentrer (F)">⤢</button>
+    </div>
     <div id="canvas-wrap">
       <canvas id="canvas" aria-label="Graphe"></canvas>
+      <input type="text" id="floating" aria-label="Valeur">
+      <div id="canvas-help"></div>
     </div>
-    <div class="stepbar" id="stepbar">
+    <div class="stepbar">
       <button id="first" title="Début">⏮</button>
       <button id="prev" title="Étape précédente (←)">◀</button>
-      <button id="play" title="Lecture">▶ Lecture</button>
-      <button id="next" title="Étape suivante (→)">▶</button>
+      <button id="play" title="Lecture (Espace)">▶</button>
+      <button id="next" title="Étape suivante (→)">▶❘</button>
       <button id="last" title="Fin">⏭</button>
       <input type="range" id="step" min="0" max="0" value="0" aria-label="Étape">
-      <span class="info" id="step-info">Aucun parcours.</span>
+      <select id="speed" aria-label="Vitesse">
+        <option value="1200">lent</option>
+        <option value="600" selected>normal</option>
+        <option value="250">rapide</option>
+        <option value="60">très rapide</option>
+      </select>
+      <span class="info" id="step-info">—</span>
     </div>
-    <div class="legend">
-      <span><i class="sw" style="background:var(--vertex)"></i>inconnu</span>
-      <span><i class="sw" style="background:var(--discovered)"></i>découvert</span>
-      <span><i class="sw" style="background:var(--processed)"></i>traité</span>
-      <span><i class="sw" style="background:transparent;border:2px solid var(--current)"></i>sommet courant</span>
-      <span><i class="ln" style="background:var(--tree)"></i>arbre</span>
-      <span><i class="ln" style="background:var(--back)"></i>arrière</span>
-      <span><i class="ln" style="background:var(--forward)"></i>avant</span>
-      <span><i class="ln" style="background:var(--cross)"></i>transverse</span>
-      <span><b style="color:var(--entry)">n</b> date d'entrée</span>
-      <span><b style="color:var(--exit)">n</b> date de sortie</span>
-    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="col" id="right">
+    <section>
+      <div class="tabs">
+        <button id="rt-algo" class="on">Algorithme</button>
+        <button id="rt-repr">Représentations</button>
+      </div>
+
+      <div id="panel-algo">
+        <select id="algo" aria-label="Algorithme"></select>
+        <p id="algo-desc"></p>
+        <div class="row">
+          <label class="grow" id="source-label">Départ <select id="source" class="grow"></select></label>
+          <button id="run" class="primary">Lancer</button>
+          <button id="stop">Effacer</button>
+        </div>
+        <div id="algo-warn"></div>
+        <div id="message">Choisissez un algorithme puis « Lancer » (ou clic droit sur un sommet de départ).</div>
+        <ol class="code" id="code"></ol>
+        <div class="struct-name" id="struct-name"></div>
+        <div class="chips" id="chips"></div>
+        <div class="table-wrap" id="table-wrap"></div>
+      </div>
+
+      <div id="panel-repr" class="hidden">
+        <div class="stats" id="repr-stats"></div>
+        <h2>Listes d'adjacence</h2>
+        <pre class="repr" id="ladj"></pre>
+        <h2>Matrice d'adjacence</h2>
+        <div class="table-wrap" id="matrix"></div>
+        <h2 style="margin-top:.8rem">Degrés</h2>
+        <div class="table-wrap" id="degrees"></div>
+      </div>
+    </section>
   </div>
 </main>
 
+<!-- ================================================================ -->
+<main id="page-flood" class="hidden">
+  <section>
+    <h2>Remplissage par diffusion</h2>
+    <div class="row">
+      <div class="seg" id="flood-tools">
+        <button data-tool="fill" class="on">🪣 Remplir</button>
+        <button data-tool="wall">▦ Mur</button>
+        <button data-tool="erase">⌫ Gomme</button>
+      </div>
+      <span class="sep"></span>
+      <button id="flood-maze">Labyrinthe</button>
+      <button id="flood-random">Murs aléatoires</button>
+      <button id="flood-rooms">Pièces</button>
+      <button id="flood-clear-walls">Effacer les murs</button>
+      <button id="flood-reset">Effacer les couleurs</button>
+      <span class="sep"></span>
+      <label>Taille <select id="flood-size" style="width:auto">
+        <option value="31">31 × 21</option>
+        <option value="61" selected>61 × 41</option>
+        <option value="101">101 × 67</option>
+        <option value="161">161 × 107</option>
+      </select></label>
+      <label>Vitesse <input type="range" id="flood-speed" min="1" max="400" value="20" style="width:8rem"></label>
+    </div>
+    <p class="hint">Cliquez dans une grille : les trois remplissages partent de la même case avec la même
+      règle (colorier la case qui sort de la structure, puis y ajouter ses voisins non coloriés dans un ordre
+      aléatoire). Seule la structure change. La couleur indique l'ordre de remplissage.</p>
+  </section>
+  <div id="flood-panes">
+    <div class="pane"><h3>Pile (profondeur) <span id="flood-count-stack">0</span></h3><canvas data-mode="stack"></canvas></div>
+    <div class="pane"><h3>File (largeur) <span id="flood-count-queue">0</span></h3><canvas data-mode="queue"></canvas></div>
+    <div class="pane"><h3>Tirage aléatoire <span id="flood-count-random">0</span></h3><canvas data-mode="random"></canvas></div>
+  </div>
+</main>
+
+<!-- ================================================================ -->
+<dialog id="dlg">
+  <h2 id="dlg-title"></h2>
+  <div class="row" id="dlg-options"></div>
+  <textarea id="dlg-text" spellcheck="false"></textarea>
+  <div class="err" id="dlg-err"></div>
+  <p class="hint" id="dlg-hint"></p>
+  <div class="row">
+    <button id="dlg-copy">Copier</button>
+    <button id="dlg-apply" class="primary">Importer</button>
+    <span class="grow"></span>
+    <button id="dlg-close">Fermer</button>
+  </div>
+</dialog>
+
+<!-- ================================================================ -->
 <section id="doc">
+<div id="doc-inner">
   <h2>Documentation</h2>
 
-  <h3>Principe</h3>
-  <p>
-    Graphlab dessine un graphe et permet de suivre pas à pas un parcours
-    (en profondeur ou en largeur) depuis un sommet source. La disposition des
-    sommets est calculée par un algorithme de forces (Eades) : les arêtes
-    agissent comme des ressorts et les sommets se repoussent.
-  </p>
-
-  <h3>Manipuler le graphe</h3>
+  <h3>Construire un graphe</h3>
   <ul>
-    <li><strong>Déplacer un sommet</strong> : le faire glisser.</li>
-    <li><strong>Se déplacer / zoomer</strong> : glisser le fond ; molette (ou pincement sur écran tactile) pour zoomer. <em>Recentrer</em> ajuste la vue au graphe.</li>
-    <li><strong>Choisir un graphe</strong> : la liste propose des familles classiques ; <em>Saisir un graphe…</em> permet d'entrer le sien.</li>
-    <li><strong>Représentations</strong> : listes d'adjacence et matrice d'adjacence du graphe courant (sommets numérotés de 0 à n−1).</li>
+    <li><strong>Partir d'une famille</strong> : choisissez-la dans « Nouveau graphe », réglez ses paramètres puis « Créer ».
+      Le paramètre <em>poids max</em> attribue des poids aléatoires entre 1 et cette valeur.</li>
+    <li><strong>Éditer à la souris</strong> avec les outils au-dessus du dessin :
+      <ul>
+        <li><em>Déplacer</em> (<kbd>D</kbd>) : glisser un sommet pour le déplacer, glisser le fond pour déplacer la vue.</li>
+        <li><em>Sommet</em> (<kbd>S</kbd>) : un clic dans le vide ajoute un sommet.</li>
+        <li><em>Arête</em> (<kbd>A</kbd>) : glisser d'un sommet à un autre, ou cliquer sur l'un puis sur l'autre.</li>
+        <li><em>Supprimer</em> (<kbd>X</kbd>) : cliquer sur un sommet ou une arête.</li>
+      </ul></li>
+    <li><strong>Renommer un sommet</strong> ou <strong>changer un poids</strong> : double-clic dessus.</li>
+    <li><em>Orienté</em> et <em>Pondéré</em> changent la nature du graphe ; sans poids, chaque arête compte pour 1.</li>
+    <li><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd> annulent et rétablissent les modifications ;
+      molette ou pincement pour zoomer, <kbd>F</kbd> pour recentrer.</li>
   </ul>
 
-  <h3>Parcours</h3>
-  <p>
-    Choisissez le type de parcours et la source, puis <em>Lancer</em> (ou
-    clic droit / double-clic sur un sommet). La barre sous le dessin permet
-    d'avancer étape par étape (<kbd>←</kbd> <kbd>→</kbd>) ou de lancer la lecture.
-  </p>
+  <h3>Format texte</h3>
+  <p>Une arête par ligne, <code>a b</code> ou <code>a b 7</code> avec un poids. Un nom seul crée un sommet isolé.
+    Les lignes <code>orienté</code> et <code>pondéré</code> fixent la nature du graphe ; <code>#</code> commence un commentaire.</p>
+  <pre class="repr" style="max-width:24rem">orienté
+pondéré
+s a 7
+s b 9
+a b 10
+c        # sommet isolé</pre>
+
+  <h3>Exécuter un algorithme</h3>
+  <p>Choisissez l'algorithme et, s'il en faut un, le sommet de départ, puis « Lancer » (ou faites un clic droit sur le
+    sommet de départ). La barre sous le dessin parcourt les étapes (<kbd>←</kbd> <kbd>→</kbd>, <kbd>Espace</kbd> pour la
+    lecture). À chaque étape, le panneau de droite montre la ligne du pseudo-code exécutée, l'explication, le contenu de
+    la structure de données (file, pile, file de priorité…) et un tableau (distances, parents, dates…).</p>
   <table>
-    <thead><tr><th>Parcours</th><th>Fonctionnement</th><th>Étapes</th></tr></thead>
+    <thead><tr><th>Famille</th><th>Algorithmes</th></tr></thead>
     <tbody>
-      <tr><td>DFS récursif</td><td>Parcours en profondeur récursif. Classe chaque arête (arbre, arrière, avant, transverse) et note les dates d'entrée et de sortie.</td><td>Une étape à l'entrée et une à la sortie de chaque sommet.</td></tr>
-      <tr><td>DFS (pile)</td><td>Même boucle que le BFS avec une pile à la place de la file. Les sommets voisins sont marqués « découverts » dès qu'ils sont empilés.</td><td>Une étape par sommet traité.</td></tr>
-      <tr><td>BFS (file)</td><td>Parcours en largeur avec une file.</td><td>Une étape par sommet traité.</td></tr>
+      <tr><td>Parcours</td><td>largeur (file), profondeur avec pile, profondeur récursif avec dates et classification des arêtes</td></tr>
+      <tr><td>Plus courts chemins</td><td>Dijkstra, Bellman-Ford (poids négatifs, détection de cycle négatif), Floyd-Warshall</td></tr>
+      <tr><td>Arbres couvrants</td><td>Prim, Kruskal (union-find)</td></tr>
+      <tr><td>Structure</td><td>tri topologique (Kahn), composantes connexes, composantes fortement connexes (Kosaraju), test de biparticité</td></tr>
+      <tr><td>Coloration</td><td>coloration gloutonne par degré décroissant (Welsh-Powell)</td></tr>
     </tbody>
   </table>
-  <p>
-    Couleurs des sommets : gris = inconnu, rouge = découvert, vert = traité ;
-    le sommet courant est entouré de vert. Pour les parcours itératifs, les
-    arêtes en vert relient chaque sommet à son parent (arbre du parcours).
-    Pour le DFS récursif, les dates d'entrée (rouge, à gauche) et de sortie
-    (vert, à droite) sont affichées à côté des sommets.
-  </p>
+  <p>Codes couleur : un sommet <span style="color:var(--waiting)">orange</span> est en attente (découvert, dans la
+    structure), un sommet <span style="color:var(--done)">vert</span> est traité, le sommet courant est entouré de bleu.
+    Les arêtes <span style="color:var(--tree)">vertes</span> forment l'arbre construit (ou les arêtes retenues) ; la
+    légende sous le dessin rappelle les couleurs utilisées par l'algorithme en cours. Pour les composantes et les
+    colorations, chaque groupe a sa couleur. Les petites étiquettes à côté des sommets sont les annotations de
+    l'algorithme (distance, dates début/fin, degré entrant…).</p>
+  <p>Les algorithmes sont écrits en OCaml (<code>algos.ml</code>) et compilés en JavaScript : chaque algorithme
+    enregistre une trace des étapes, que la page affiche.</p>
 
-  <h3>Graphes proposés</h3>
-  <table>
-    <tbody>
-      <tr><td>Complet <i>n</i></td><td>Toutes les arêtes entre <i>n</i> sommets.</td></tr>
-      <tr><td>Cycle <i>n</i></td><td><i>i</i> relié à <i>i</i>+1 (mod <i>n</i>).</td></tr>
-      <tr><td>Möbius <i>n</i></td><td>Cycle auquel on ajoute les « diagonales » <i>i</i> — <i>i</i>+<i>n</i>/2.</td></tr>
-      <tr><td>Hypercube <i>d</i></td><td>2<sup><i>d</i></sup> sommets ; deux sommets sont reliés si leurs écritures binaires diffèrent d'un bit.</td></tr>
-      <tr><td>Grille <i>n</i></td><td>Grille <i>n</i>×<i>n</i>, sommets notés <code>x,y</code>.</td></tr>
-      <tr><td>Exemple</td><td>Petit graphe orienté à 6 sommets (a…f).</td></tr>
-      <tr><td>Diviseurs <i>n</i></td><td>Graphe orienté sur 1…<i>n</i> : <i>a</i> → <i>b</i> si <i>a</i> divise <i>b</i> (et <i>a</i> &lt; <i>b</i>).</td></tr>
-    </tbody>
-  </table>
+  <h3>Exporter</h3>
+  <ul>
+    <li><em>Texte</em> : le format ci-dessus, modifiable puis réimportable.</li>
+    <li><em>Code OCaml</em> : listes d'adjacence (<code>int list array</code>, ou couples <code>(voisin, poids)</code>) et
+      matrice d'adjacence, prêtes à coller dans un programme.</li>
+    <li><em>TikZ</em> : figure LaTeX reprenant la disposition affichée.</li>
+    <li><em>Lien de partage</em> : une adresse qui contient tout le graphe (positions comprises).</li>
+    <li><em>Image PNG</em> et fichier <em>.json</em> réouvrable.</li>
+  </ul>
 
-  <h3>Réglages de la disposition</h3>
-  <p>
-    <em>Animer</em> fait tourner l'algorithme de forces en continu (on peut
-    déplacer des sommets pendant l'animation). <em>Attraction</em> et
-    <em>Longueur</em> règlent la force des ressorts
-    (c<sub>1</sub>·log(d/c<sub>2</sub>)), <em>Répulsion</em> la force
-    c<sub>3</sub>/d² entre sommets, <em>Pas</em> l'amplitude de chaque
-    itération. <em>Mélanger</em> repart de positions aléatoires.
-  </p>
+  <h3>Disposition</h3>
+  <p><em>Forces</em> recalcule une disposition par l'algorithme d'Eades (les arêtes sont des ressorts, les sommets se
+    repoussent) ; <em>Animer</em> le fait tourner en continu, et on peut déplacer des sommets pendant ce temps.
+    <em>Cercle</em> place les sommets sur un cercle, <em>Mélanger</em> au hasard.</p>
+
+  <h3>Remplissage</h3>
+  <p>L'onglet <em>Remplissage</em> compare trois remplissages d'une grille depuis la même case : avec une pile (parcours
+    en profondeur), une file (parcours en largeur) et un tirage aléatoire. Dessinez des murs, générez un labyrinthe, puis
+    cliquez pour lancer les trois remplissages. Les couleurs vont du rouge (premières cases) au violet (dernières) :
+    la file progresse par fronts circulaires, la pile en longs serpentins.</p>
+</div>
 </section>
 
 <script src="graphlab.js"></script>
-<script>
-(() => {
-  const G = window.graphlab;
-  const $ = (id) => document.getElementById(id);
-  const canvas = $("canvas"), ctx = canvas.getContext("2d");
-  const css = getComputedStyle(document.documentElement);
-  const color = (name) => css.getPropertyValue("--" + name).trim();
-  let colors = {};
-  function readColors() {
-    const c = getComputedStyle(document.documentElement);
-    for (const n of ["canvas","edge","vertex","vertex-text","discovered","processed","current","tree","back","forward","cross","entry","exit"])
-      colors[n] = c.getPropertyValue("--" + n).trim();
-  }
-  readColors();
-  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { readColors(); draw(); });
-
-  // État de l'affichage
-  let vertices = [], edges = [], pos = [], adj = new Set();
-  let cam = { x: 0, y: 0, zoom: 1 };          // centre du monde affiché, zoom
-  let step = null, stepIndex = 0, stepCount = 0;
-  let searchKind = "dfsrec";
-  let animating = false, playing = null;
-  let dragged = -1;
-
-  // Tailles réglées en pixels écran, converties en unités du monde
-  const style = () => ({
-    radius: +$("radius").value / cam.zoom,
-    thickness: +$("thickness").value / cam.zoom,
-    directed: $("directed").checked,
-    labels: $("labels").checked,
-  });
-
-  // --- Chargement du graphe -------------------------------------------
-  function loadGraph() {
-    vertices = Array.from(G.vertices());
-    edges = Array.from(G.edges()).map((e) => [e[0], e[1]]);
-    adj = new Set(edges.map(([i, j]) => i + "," + j));
-    pos = Array.from(G.positions()).map((p) => [p[0], p[1]]);
-    $("directed").checked = !!G.directed();
-    $("source").innerHTML = vertices.map((v, i) => `<option value="${i}">${escapeHtml(v)}</option>`).join("");
-    $("stats").innerHTML = `<b>${vertices.length}</b> sommets · <b>${G.directed() ? G.nedges() : G.nedges() / 2}</b> ${G.directed() ? "arcs" : "arêtes"} · diamètre <b>${G.diameter()}</b>`;
-    $("ladj").textContent = G.ladj();
-    $("matrix").textContent = vertices.length <= 40 ? G.matrix() : "(trop grand pour être affiché)";
-    resetSearch();
-    fit();
-  }
-
-  function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-
-  function refreshPositions() { pos = Array.from(G.positions()).map((p) => [p[0], p[1]]); }
-
-  // --- Caméra -------------------------------------------------------------
-  function size() {
-    const r = canvas.getBoundingClientRect();
-    return { w: r.width, h: r.height };
-  }
-  function fit() {
-    if (!pos.length) return;
-    let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-    for (const [x, y] of pos) { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }
-    const { w, h } = size();
-    cam.x = (x1 + x2) / 2; cam.y = (y1 + y2) / 2;
-    const pad = 4 * +$("radius").value;
-    cam.zoom = Math.min((w - pad) / Math.max(x2 - x1, 1), (h - pad) / Math.max(y2 - y1, 1));
-    if (!isFinite(cam.zoom) || cam.zoom <= 0) cam.zoom = 1;
-    draw();
-  }
-  const toScreen = (x, y) => { const { w, h } = size(); return [(x - cam.x) * cam.zoom + w / 2, (y - cam.y) * cam.zoom + h / 2]; };
-  const toWorld = (sx, sy) => { const { w, h } = size(); return [(sx - w / 2) / cam.zoom + cam.x, (sy - h / 2) / cam.zoom + cam.y]; };
-
-  // --- Dessin ---------------------------------------------------------------
-  function resize() {
-    const dpr = window.devicePixelRatio || 1;
-    const { w, h } = size();
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
-    draw();
-  }
-
-  function arrowHead(x1, y1, x2, y2, r, t, col) {
-    const dx = x2 - x1, dy = y2 - y1, l = Math.hypot(dx, dy) || 1;
-    const ux = dx / l, uy = dy / l, px = -uy, py = ux;
-    const hw = Math.max(t * 3, r * 0.45);
-    const tipx = x2 - ux * r, tipy = y2 - uy * r;
-    const bx = x2 - ux * (r + hw * 2.2), by = y2 - uy * (r + hw * 2.2);
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(tipx, tipy);
-    ctx.lineTo(bx + px * hw, by + py * hw);
-    ctx.lineTo(bx - px * hw, by - py * hw);
-    ctx.closePath(); ctx.fill();
-  }
-
-  // Arête i → j : en orienté, légèrement courbée pour distinguer i→j de j→i
-  function drawEdge(i, j, t, col, directed, arrows) {
-    const [xi, yi] = pos[i], [xj, yj] = pos[j];
-    const r = style().radius;
-    ctx.strokeStyle = col; ctx.lineWidth = t;
-    ctx.beginPath();
-    if (directed) {
-      const dx = xj - xi, dy = yj - yi, l = Math.hypot(dx, dy) || 1;
-      const mx = xi + dx / 2 - dy / l * r, my = yi + dy / 2 + dx / l * r;
-      ctx.moveTo(xi, yi); ctx.lineTo(mx, my); ctx.lineTo(xj, yj); ctx.stroke();
-      if (arrows) arrowHead(mx, my, xj, yj, r, t, col);
-    } else {
-      ctx.moveTo(xi, yi); ctx.lineTo(xj, yj); ctx.stroke();
-      if (arrows) arrowHead(xi, yi, xj, yj, r, t, col);
-    }
-  }
-
-  const edgeColors = [null, "tree", "back", "forward", "cross"];
-
-  function draw() {
-    const dpr = window.devicePixelRatio || 1;
-    const { w, h } = size();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = colors.canvas; ctx.fillRect(0, 0, w, h);
-    if (!pos.length) return;
-    ctx.setTransform(dpr * cam.zoom, 0, 0, dpr * cam.zoom,
-      dpr * (w / 2 - cam.x * cam.zoom), dpr * (h / 2 - cam.y * cam.zoom));
-    const st = style();
-    ctx.lineCap = "round"; ctx.lineJoin = "round";
-
-    for (const [i, j] of edges) {
-      if (st.directed || i < j || !adj.has(j + "," + i))
-        drawEdge(i, j, st.thickness, colors.edge, st.directed, st.directed);
-    }
-    if (step) {
-      for (const [i, j, c] of step.edgeStatus)
-        drawEdge(i, j, st.thickness * 2.5, colors[edgeColors[c]], st.directed, true);
-    }
-
-    const r = st.radius;
-    pos.forEach(([x, y], i) => {
-      let out = colors.edge, fill = colors.vertex;
-      if (step) {
-        fill = [colors.vertex, colors.discovered, colors.processed][step.status[i]];
-        if (step.current === i) out = colors.current;
-      }
-      const ring = step && step.current === i ? Math.max(st.thickness, r * 0.25) : st.thickness;
-      ctx.fillStyle = out;
-      ctx.beginPath(); ctx.arc(x, y, r + ring, 0, 2 * Math.PI); ctx.fill();
-      ctx.fillStyle = fill;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill();
-    });
-
-    ctx.textBaseline = "middle";
-    pos.forEach(([x, y], i) => {
-      if (st.labels) {
-        ctx.fillStyle = colors["vertex-text"];
-        ctx.textAlign = "center";
-        const label = vertices[i];
-        const fs = Math.min(r, (2 * r * 0.9) / Math.max(1, label.length * 0.6));
-        ctx.font = `600 ${fs}px system-ui, sans-serif`;
-        ctx.fillText(label, x, y);
-      }
-      if (step) {
-        ctx.font = `600 ${r * 0.8}px system-ui, sans-serif`;
-        const e = step.entry[i], s = step.exit[i];
-        if (e !== null && e !== undefined) {
-          ctx.fillStyle = colors.entry; ctx.textAlign = "right";
-          ctx.fillText(String(e), x - r * 1.35, y);
-        }
-        if (s !== null && s !== undefined) {
-          ctx.fillStyle = colors.exit; ctx.textAlign = "left";
-          ctx.fillText(String(s), x + r * 1.35, y);
-        }
-      }
-    });
-  }
-
-  // --- Parcours -------------------------------------------------------------
-  function runSearch(src) {
-    stopPlay();
-    G.search(searchKind, src);
-    $("source").value = String(src);
-    stepCount = G.stepCount();
-    setStep(0);
-  }
-  function resetSearch() {
-    stopPlay();
-    G.resetSearch();
-    step = null; stepCount = 0; stepIndex = 0;
-    updateStepBar(); draw();
-  }
-  function setStep(k) {
-    if (!stepCount) return;
-    stepIndex = Math.max(0, Math.min(stepCount - 1, k));
-    step = G.step(stepIndex);
-    step = {
-      current: step.current,
-      status: Array.from(step.status),
-      entry: Array.from(step.entry),
-      exit: Array.from(step.exit),
-      edgeStatus: Array.from(step.edgeStatus).map((a) => Array.from(a)),
-    };
-    updateStepBar(); draw();
-  }
-  function updateStepBar() {
-    const has = stepCount > 0;
-    for (const id of ["first", "prev", "play", "next", "last", "step"]) $(id).disabled = !has;
-    $("step").max = Math.max(0, stepCount - 1);
-    $("step").value = stepIndex;
-    $("step-info").textContent = has
-      ? `Étape ${stepIndex + 1} / ${stepCount} · sommet courant : ${vertices[step.current]}`
-      : "Aucun parcours : choisissez une source et « Lancer ».";
-    $("play").textContent = playing ? "⏸ Pause" : "▶ Lecture";
-  }
-  function stopPlay() { if (playing) { clearInterval(playing); playing = null; } updateStepBar(); }
-  function togglePlay() {
-    if (playing) return stopPlay();
-    if (stepIndex >= stepCount - 1) setStep(0);
-    playing = setInterval(() => {
-      if (stepIndex >= stepCount - 1) stopPlay(); else setStep(stepIndex + 1);
-    }, 600);
-    updateStepBar();
-  }
-
-  // --- Animation de la disposition ------------------------------------------
-  function layoutParams() { return ["c1", "c2", "c3", "c4"].map((id) => +$(id).value); }
-  function tick() {
-    if (!animating) return;
-    const [c1, c2, c3, c4] = layoutParams();
-    G.iterate(c1, c2, c3, c4, dragged);
-    refreshPositions();
-    draw();
-    requestAnimationFrame(tick);
-  }
-
-  // --- Interaction souris / tactile ----------------------------------------
-  function vertexAt(sx, sy) {
-    const [x, y] = toWorld(sx, sy);
-    const r = style().radius;
-    for (let i = pos.length - 1; i >= 0; i--)
-      if (Math.hypot(pos[i][0] - x, pos[i][1] - y) <= r * 1.2) return i;
-    return -1;
-  }
-  const pointers = new Map();
-  let panStart = null, pinch = null;
-  function localXY(e) { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
-
-  canvas.addEventListener("pointerdown", (e) => {
-    if (e.button === 2) return;
-    canvas.setPointerCapture(e.pointerId);
-    const [sx, sy] = localXY(e);
-    pointers.set(e.pointerId, [sx, sy]);
-    if (pointers.size === 2) {
-      dragged = -1; panStart = null;
-      const [a, b] = [...pointers.values()];
-      pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), zoom: cam.zoom };
-      return;
-    }
-    const v = vertexAt(sx, sy);
-    if (v >= 0) dragged = v;
-    else panStart = { sx, sy, x: cam.x, y: cam.y };
-    canvas.classList.add("dragging");
-  });
-  canvas.addEventListener("pointermove", (e) => {
-    if (!pointers.has(e.pointerId)) {
-      const [sx, sy] = localXY(e);
-      canvas.style.cursor = vertexAt(sx, sy) >= 0 ? "pointer" : "";
-      return;
-    }
-    const [sx, sy] = localXY(e);
-    pointers.set(e.pointerId, [sx, sy]);
-    if (pinch && pointers.size === 2) {
-      const [a, b] = [...pointers.values()];
-      cam.zoom = pinch.zoom * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d;
-      draw(); return;
-    }
-    if (dragged >= 0) {
-      const [x, y] = toWorld(sx, sy);
-      G.setPosition(dragged, x, y);
-      pos[dragged] = [x, y];
-      draw();
-    } else if (panStart) {
-      cam.x = panStart.x - (sx - panStart.sx) / cam.zoom;
-      cam.y = panStart.y - (sy - panStart.sy) / cam.zoom;
-      draw();
-    }
-  });
-  function endPointer(e) {
-    pointers.delete(e.pointerId);
-    if (pointers.size < 2) pinch = null;
-    if (pointers.size === 0) { dragged = -1; panStart = null; canvas.classList.remove("dragging"); }
-  }
-  canvas.addEventListener("pointerup", endPointer);
-  canvas.addEventListener("pointercancel", endPointer);
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const [sx, sy] = localXY(e);
-    const [wx, wy] = toWorld(sx, sy);
-    cam.zoom *= Math.exp(-e.deltaY * 0.0015);
-    const [nx, ny] = toWorld(sx, sy);
-    cam.x += wx - nx; cam.y += wy - ny;
-    draw();
-  }, { passive: false });
-  canvas.addEventListener("contextmenu", (e) => {
-    e.preventDefault();
-    const v = vertexAt(...localXY(e));
-    if (v >= 0) runSearch(v);
-  });
-  canvas.addEventListener("dblclick", (e) => {
-    const v = vertexAt(...localXY(e));
-    if (v >= 0) runSearch(v);
-  });
-
-  // --- Contrôles -------------------------------------------------------------
-  $("examples").innerHTML = Array.from(G.examples()).map((n) => `<option>${escapeHtml(n)}</option>`).join("");
-  $("examples").addEventListener("change", (e) => { G.setExample(e.target.value); loadGraph(); });
-  $("custom-load").addEventListener("click", () => {
-    const err = G.setCustom($("custom-directed").checked, $("custom").value);
-    $("custom-err").textContent = err === null ? "" : "Erreur : " + err;
-    if (err === null) {
-      const o = $("examples").querySelector("option[data-custom]") ||
-        $("examples").appendChild(Object.assign(document.createElement("option"), { textContent: "Graphe saisi" }));
-      o.dataset.custom = "1";
-      $("examples").value = o.textContent;
-      loadGraph();
-    }
-  });
-
-  document.querySelectorAll("#search-type button").forEach((b) => b.addEventListener("click", () => {
-    document.querySelectorAll("#search-type button").forEach((x) => x.classList.toggle("on", x === b));
-    searchKind = b.dataset.kind;
-    if (stepCount) runSearch(+$("source").value);
-  }));
-  $("search-go").addEventListener("click", () => runSearch(+$("source").value));
-  $("search-reset").addEventListener("click", resetSearch);
-
-  $("first").addEventListener("click", () => { stopPlay(); setStep(0); });
-  $("prev").addEventListener("click", () => { stopPlay(); setStep(stepIndex - 1); });
-  $("next").addEventListener("click", () => { stopPlay(); setStep(stepIndex + 1); });
-  $("last").addEventListener("click", () => { stopPlay(); setStep(stepCount - 1); });
-  $("play").addEventListener("click", togglePlay);
-  $("step").addEventListener("input", (e) => { stopPlay(); setStep(+e.target.value); });
-  document.addEventListener("keydown", (e) => {
-    if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && document.activeElement.type !== "range") return;
-    if (e.key === "ArrowRight" && stepCount) { e.preventDefault(); stopPlay(); setStep(stepIndex + 1); }
-    if (e.key === "ArrowLeft" && stepCount) { e.preventDefault(); stopPlay(); setStep(stepIndex - 1); }
-  });
-
-  $("animate").addEventListener("click", (e) => {
-    animating = !animating;
-    e.target.classList.toggle("on", animating);
-    e.target.textContent = animating ? "Arrêter" : "Animer";
-    if (animating) requestAnimationFrame(tick);
-  });
-  $("randomize").addEventListener("click", () => { G.randomize(); refreshPositions(); fit(); });
-  $("fit").addEventListener("click", fit);
-
-  document.querySelectorAll(".slider input").forEach((inp) => {
-    const out = inp.parentElement.querySelector("output");
-    const show = () => { out.textContent = (+inp.value).toFixed(inp.step < 0.1 ? 3 : 1).replace(/\.0+$/, ""); };
-    show();
-    inp.addEventListener("input", () => { show(); draw(); });
-  });
-  for (const id of ["directed", "labels"]) $(id).addEventListener("change", draw);
-
-  new ResizeObserver(resize).observe($("canvas-wrap"));
-  loadGraph();
-  resize();
-  fit();
-})();
-</script>
+<script src="app.js"></script>
+<script src="flood.js"></script>
 </body>
 </html>

@@ -8,6 +8,6 @@
 (rule
  (alias web)
  (targets graphlab.js)
- (deps graphlab_web.bc.js index.html)
+ (deps graphlab_web.bc.js index.html app.css app.js flood.js)
  (action
   (copy graphlab_web.bc.js graphlab.js)))

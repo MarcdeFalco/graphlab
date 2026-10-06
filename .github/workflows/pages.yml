@@ -26,7 +26,7 @@ jobs:
       - run: opam exec -- dune build --profile release @web/web
       - run: |
           mkdir site
-          cp _build/default/web/index.html _build/default/web/graphlab.js site/
+          cp _build/default/web/{index.html,app.css,app.js,flood.js,graphlab.js} site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
